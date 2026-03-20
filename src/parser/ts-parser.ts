@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import { ContractParser } from './contract-parser';
 import { ZodExtractor } from './zod-extractor';
 import { CapabilityDetector } from './capability-detector';
+import { AuthDetector } from './auth-detector';
 import { inferIntent, classifySafety, deriveAgentSafe } from './intent-classifier';
 
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']);
@@ -14,6 +15,7 @@ export class TSParser {
   private contractParser: ContractParser;
   private zodExtractor: ZodExtractor;
   private capabilityDetector: CapabilityDetector;
+  private authDetector: AuthDetector;
   private _appMetadata: AppMetadata = {};
 
   constructor(private projectPath: string) {
@@ -23,6 +25,26 @@ export class TSParser {
     this.contractParser = new ContractParser(projectPath);
     this.zodExtractor = new ZodExtractor();
     this.capabilityDetector = new CapabilityDetector();
+    this.authDetector = new AuthDetector();
+    // Seed auth detection from package.json dependencies
+    this.authDetector.readPackageJson(projectPath);
+    // Seed app metadata from package.json (overridden by farcaster.json if present)
+    this.readPackageJsonMetadata();
+  }
+
+  /** Populate _appMetadata from package.json as a baseline fallback */
+  private readPackageJsonMetadata(): void {
+    const pkgPath = path.join(this.projectPath, 'package.json');
+    if (!fs.existsSync(pkgPath)) return;
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      this._appMetadata = {
+        name:        pkg.name,
+        description: pkg.description,
+        author:      typeof pkg.author === 'string' ? pkg.author : pkg.author?.name,
+        url:         pkg.homepage,
+      };
+    } catch { /* ignore */ }
   }
 
   async parseFile(filePath: string): Promise<AgentAction[]> {
@@ -220,9 +242,11 @@ export class TSParser {
       }
     }
 
-    // 3g. Scan file content for Farcaster SDK capability signals
+    // 3g. Scan file content for capability + auth signals
     try {
-      this.capabilityDetector.scanContent(fs.readFileSync(filePath, 'utf8'));
+      const rawContent = fs.readFileSync(filePath, 'utf8');
+      this.capabilityDetector.scanContent(rawContent);
+      this.authDetector.scanContent(rawContent);
     } catch { /* ignore */ }
 
     return actions;
@@ -234,6 +258,10 @@ export class TSParser {
 
   public getCapabilities(): string[] {
     return this.capabilityDetector.getCapabilities();
+  }
+
+  public getAuth() {
+    return this.authDetector.getAuth();
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@
   "title": "Farcaster Agent Manifest",
   "description": "Describes all agent-callable actions in a Farcaster Mini App",
   "type": "object",
-  "required": ["name", "description", "version", "capabilities", "actions"],
+  "required": ["name", "description", "version", "auth", "capabilities", "actions"],
   "additionalProperties": false,
   "properties": {
     "name": {
@@ -28,6 +28,23 @@
       "type": "string",
       "format": "uri",
       "description": "Mini app homepage or Farcaster frame URL"
+    },
+    "auth": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "description": "How agents should authenticate with this app",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["none", "bearer", "api-key", "oauth2", "basic", "farcaster-frame", "cookie"],
+          "description": "Authentication scheme"
+        },
+        "header":     { "type": "string", "description": "Header name, e.g. Authorization or X-API-Key" },
+        "scheme":     { "type": "string", "description": "Header value prefix, e.g. Bearer or Token" },
+        "queryParam": { "type": "string", "description": "Query param name for api-key auth" },
+        "docsUrl":    { "type": "string", "format": "uri", "description": "Where to obtain credentials" }
+      }
     },
     "metadata": {
       "type": "object",

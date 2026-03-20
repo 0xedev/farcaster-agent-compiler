@@ -1,5 +1,20 @@
 export type SafetyLevel = 'read' | 'write' | 'financial' | 'destructive';
 
+export type AuthType = 'none' | 'bearer' | 'api-key' | 'oauth2' | 'basic' | 'farcaster-frame' | 'cookie';
+
+export interface AuthConfig {
+  /** How agents should authenticate with this app */
+  type: AuthType;
+  /** Header name for bearer/api-key auth (default: "Authorization") */
+  header?: string;
+  /** Header scheme prefix, e.g. "Bearer" or "Token" */
+  scheme?: string;
+  /** For api-key: the query param name if passed as query string */
+  queryParam?: string;
+  /** URL where agents/users can obtain credentials */
+  docsUrl?: string;
+}
+
 export interface ParameterProperty {
   type: string;
   description?: string;
@@ -60,6 +75,8 @@ export interface AgentManifest {
   version: string;
   author?: string;
   url?: string;
+  /** How agents authenticate with this app */
+  auth: AuthConfig;
   metadata: AppMetadata;
   capabilities: string[];
   actions: AgentAction[];

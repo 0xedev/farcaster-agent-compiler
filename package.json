@@ -1,10 +1,11 @@
 {
-  "name": "farcaster-agent-compiler",
-  "version": "2.0.0",
-  "description": "",
+  "name": "agentjson",
+  "version": "3.0.0",
+  "description": "Universal agent manifest compiler — generates agent.json for any web app so AI agents can discover and interact with it",
   "main": "dist/index.js",
   "bin": {
-    "farcaster-agent-compiler": "dist/index.js"
+    "agentjson": "dist/index.js",
+    "agent-json": "dist/index.js"
   },
   "files": [
     "dist",
@@ -22,12 +23,18 @@
     "url": "https://github.com/0xedev/farcaster-agent-compiler"
   },
   "keywords": [
-    "farcaster",
-    "agents",
+    "agent",
     "ai",
-    "mini-apps",
-    "frames",
-    "compiler"
+    "manifest",
+    "agent.json",
+    "compiler",
+    "farcaster",
+    "next.js",
+    "express",
+    "hono",
+    "fastify",
+    "openapi",
+    "llm"
   ],
   "author": "",
   "license": "ISC",

@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { glob } from 'tinyglobby';
+import { looksLikeRouteFile } from '../parser/express-parser';
 
 /** Glob negations applied to every pattern to keep node_modules and build artifacts out. */
 const ALWAYS_EXCLUDE = [
@@ -73,7 +74,8 @@ export class DiscoveryService {
         content.includes('useContractWrite') ||
         content.includes('writeContract') ||
         content.includes("'use server'") ||
-        content.includes('"use server"')
+        content.includes('"use server"') ||
+        looksLikeRouteFile(content)
       ) {
         relevantFiles.push(file);
       }
