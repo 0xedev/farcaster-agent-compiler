@@ -26,6 +26,11 @@ export interface AgentAction {
   abiFunction?: string;
   isReadOnly?: boolean;
   chainId?: number;
+  /**
+   * Deployed contract address. Either a literal `0x...` string,
+   * or `{ $env: "VAR_NAME" }` when resolved from an environment variable.
+   */
+  contractAddress?: string | { $env: string };
   /** Safety classification for agent policy enforcement */
   safety: SafetyLevel;
   /** True when the action can be executed autonomously without human confirmation */

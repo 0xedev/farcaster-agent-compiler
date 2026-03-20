@@ -90,6 +90,7 @@ export class ContractParser {
       let abiVarName: string | null = null;
       let functionName: string | null = null;
       let chainId: number | undefined;
+      let contractAddress: string | { $env: string } | undefined;
 
       for (const prop of props) {
         if (!Node.isPropertyAssignment(prop)) continue;
@@ -113,6 +114,11 @@ export class ContractParser {
         // Chain object reference: { chain: base } → resolve known chain names
         if (key === 'chain') {
           chainId = KNOWN_CHAINS[init.getText().trim()] ?? chainId;
+        }
+
+        // Contract address: literal or env var reference
+        if (key === 'address') {
+          contractAddress = resolveAddressNode(init);
         }
       }
 
@@ -139,6 +145,7 @@ export class ContractParser {
         location: sourceFile.getFilePath(),
         abiFunction: functionName,
         ...(chainId !== undefined ? { chainId } : {}),
+        ...(contractAddress !== undefined ? { contractAddress } : {}),
         safety,
         agentSafe: deriveAgentSafe(safety),
         inputs: parameters,
@@ -215,4 +222,34 @@ export class ContractParser {
     if (type.endsWith('[]')) return 'array';
     return 'string';
   }
+}
+
+// ─── Module-level helpers ─────────────────────────────────────────────────────
+
+/**
+ * Resolve a wagmi `address` node to either:
+ *   - a literal `0x...` string (safe — on-chain public data)
+ *   - `{ $env: "VAR_NAME" }` when referencing process.env.* (never leak actual value)
+ *   - undefined if not resolvable
+ */
+function resolveAddressNode(node: Node): string | { $env: string } | undefined {
+  // Literal string: address: '0xABC...'
+  if (Node.isStringLiteral(node)) {
+    const val = node.getLiteralValue();
+    if (/^0x[0-9a-fA-F]{40}$/i.test(val)) return val;
+    return undefined;
+  }
+
+  // Type assertion: address: '0xABC...' as `0x${string}`
+  if (Node.isAsExpression(node)) {
+    return resolveAddressNode(node.getExpression());
+  }
+
+  // process.env.NEXT_PUBLIC_CONTRACT_ADDRESS → { $env: "NEXT_PUBLIC_CONTRACT_ADDRESS" }
+  // Also handles: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`
+  const text = node.getText().trim();
+  const envMatch = text.match(/process\.env\.([A-Z0-9_]+)/);
+  if (envMatch) return { $env: envMatch[1] };
+
+  return undefined;
 }

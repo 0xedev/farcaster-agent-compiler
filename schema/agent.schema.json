@@ -93,6 +93,20 @@
         "abiFunction": { "type": "string" },
         "isReadOnly":  { "type": "boolean" },
         "chainId":     { "type": "integer" },
+        "contractAddress": {
+          "oneOf": [
+            { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$", "description": "Literal deployed address" },
+            {
+              "type": "object",
+              "required": ["$env"],
+              "additionalProperties": false,
+              "properties": {
+                "$env": { "type": "string", "description": "Environment variable name that holds the address" }
+              },
+              "description": "Address resolved from an environment variable at runtime"
+            }
+          ]
+        },
         "safety": {
           "type": "string",
           "enum": ["read", "write", "financial", "destructive"],

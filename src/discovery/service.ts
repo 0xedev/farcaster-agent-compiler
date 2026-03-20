@@ -13,6 +13,11 @@ const ALWAYS_EXCLUDE = [
   '!**/out/**',
   '!**/build/**',
   '!**/.vercel/**',
+  // Never scan env files — they may contain secrets
+  '!**/.env',
+  '!**/.env.*',
+  '!**/secrets/**',
+  '!**/credentials/**',
 ];
 
 export class DiscoveryService {
