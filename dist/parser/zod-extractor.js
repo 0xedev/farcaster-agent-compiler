@@ -8,6 +8,10 @@ const ts_morph_1 = require("ts-morph");
  * Handles patterns like:
  *   const Schema = z.object({ field: z.string().min(1).default('x'), ... })
  *   Schema.safeParse(req.body) / Schema.parse(await request.json())
+ *
+ * Also resolves schemas imported from other files (e.g. src/lib/schemas.ts),
+ * so centralised schema files are picked up even when the route file only
+ * imports and uses the schema rather than defining it inline.
  */
 class ZodExtractor {
     extractSchemas(sourceFile) {
@@ -23,7 +27,15 @@ class ZodExtractor {
         }
         return schemas;
     }
+    /**
+     * Walk .parse() / .safeParse() calls in the file. When the schema variable
+     * isn't defined locally, follow the import graph one level to find it in the
+     * source file that exported it.
+     */
     findUsedSchema(sourceFile, schemas) {
+        // Build a name→sourceFile map for every named import so we can resolve
+        // cross-file schemas on demand.
+        const importedFrom = this.buildImportMap(sourceFile);
         let found = null;
         sourceFile.forEachDescendant(node => {
             if (found)
@@ -37,11 +49,42 @@ class ZodExtractor {
             if (method !== 'safeParse' && method !== 'parse')
                 return;
             const schemaName = expr.getExpression().getText().trim();
+            // 1. Local schema defined in the same file
             if (schemas.has(schemaName)) {
                 found = schemas.get(schemaName);
+                return;
+            }
+            // 2. Schema imported from another file — resolve and extract
+            const importedFile = importedFrom.get(schemaName);
+            if (importedFile) {
+                const remoteSchemas = this.extractSchemas(importedFile);
+                if (remoteSchemas.has(schemaName)) {
+                    found = remoteSchemas.get(schemaName);
+                }
             }
         });
         return found;
+    }
+    /**
+     * Build a map of { localName → SourceFile } for every named import in the
+     * file whose module specifier resolves within the project.
+     */
+    buildImportMap(sourceFile) {
+        const map = new Map();
+        for (const importDecl of sourceFile.getImportDeclarations()) {
+            const resolvedFile = importDecl.getModuleSpecifierSourceFile();
+            if (!resolvedFile)
+                continue;
+            for (const named of importDecl.getNamedImports()) {
+                // alias: `import { BodySchema as Body }` → local name is "Body"
+                map.set(named.getAliasNode()?.getText() ?? named.getName(), resolvedFile);
+            }
+            // Default import: `import Schemas from './schemas'` — less common for Zod
+            const defaultImport = importDecl.getDefaultImport();
+            if (defaultImport)
+                map.set(defaultImport.getText(), resolvedFile);
+        }
+        return map;
     }
     tryExtractObjectShape(node) {
         const base = this.getZodBase(node);

@@ -65,6 +65,8 @@ class TSParser {
         // Seed app metadata from package.json (overridden by farcaster.json if present)
         this.readPackageJsonMetadata();
     }
+    /** Expose the shared Project so callers can pass it to other parsers, avoiding duplicate AST work. */
+    getProject() { return this.project; }
     /** Populate _appMetadata from package.json as a baseline fallback */
     readPackageJsonMetadata() {
         const pkgPath = path.join(this.projectPath, 'package.json');
