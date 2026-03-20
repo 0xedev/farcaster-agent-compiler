@@ -29,7 +29,7 @@ const INTENT_RULES: IntentRule[] = [
   // to avoid matching mid-word (e.g. "undo" matching "do").
 
   // Game
-  { pattern: /\b(play|flip|roll|spin|bet|guess|draw|move|attack|defend|claim(?:Prize|Reward|Win))/i, intent: 'game.play' },
+  { pattern: /\b(play|flip|roll|spin|bet|guess|draw|move|make(?:Move)?|drop(?:Piece)?|attack|defend|claim(?:Prize|Reward|Win))/i, intent: 'game.play' },
   { pattern: /\b(score|leaderboard|rank|highscore)/i, intent: 'game.score' },
   { pattern: /\b(join(?:Game|Room|Lobby)|create(?:Game|Room)|start(?:Game|Round))/i, intent: 'game.join' },
 
@@ -119,7 +119,7 @@ export function classifySafety(opts: {
   name: string;
   httpMethod?: string;
   isReadOnly?: boolean;   // ABI view/pure
-  type: 'api' | 'contract' | 'function';
+  type: 'api' | 'contract' | 'function' | 'socket';
 }): SafetyLevel {
   const { name, httpMethod, isReadOnly, type } = opts;
 
@@ -159,7 +159,7 @@ export function inferActionAuth(opts: {
   httpMethod?: string;
   isReadOnly?: boolean;
   appAuthType?: AuthType;
-  type: 'api' | 'contract' | 'function';
+  type: 'api' | 'contract' | 'function' | 'socket';
 }): ActionAuth {
   const { safety, httpMethod, isReadOnly, appAuthType, type } = opts;
 

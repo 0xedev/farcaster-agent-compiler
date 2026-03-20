@@ -47,9 +47,11 @@ export interface AgentAction {
   description: string;
   /** Standardized semantic intent, e.g. "game.play", "finance.transfer", "social.cast" */
   intent: string;
-  type: 'api' | 'contract' | 'function';
+  type: 'api' | 'contract' | 'function' | 'socket';
   location: string;
   method?: string;
+  /** For socket type: the Socket.IO event name to emit */
+  socketEvent?: string;
   /** Auth requirement for this specific action (may differ from app-level auth) */
   requiredAuth: ActionAuth;
   abiFunction?: string;

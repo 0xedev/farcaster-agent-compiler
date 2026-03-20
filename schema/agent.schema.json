@@ -100,7 +100,7 @@
         },
         "type": {
           "type": "string",
-          "enum": ["api", "contract", "function"]
+          "enum": ["api", "contract", "function", "socket"]
         },
         "location": { "type": "string" },
         "method": {

@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { glob } from 'tinyglobby';
 import { looksLikeRouteFile } from '../parser/express-parser';
+import { looksLikeSocketIOFile } from '../parser/socketio-parser';
 
 /** SHA-1 of a file's content — used for change detection caching. */
 function fileHash(filePath: string): string {
@@ -118,7 +119,8 @@ export class DiscoveryService {
         content.includes('writeContract') ||
         content.includes("'use server'") ||
         content.includes('"use server"') ||
-        looksLikeRouteFile(content);
+        looksLikeRouteFile(content) ||
+        looksLikeSocketIOFile(content);
 
       this.cache[file] = { hash, relevant };
       this.cacheModified = true;

@@ -2,12 +2,14 @@
 import { Command } from 'commander';
 import * as fs from 'fs';
 import * as path from 'path';
-import { 
-  DiscoveryService, 
-  TSParser, 
-  ExpressParser, 
-  ManifestGenerator, 
-  looksLikeRouteFile 
+import {
+  DiscoveryService,
+  TSParser,
+  ExpressParser,
+  SocketIOParser,
+  ManifestGenerator,
+  looksLikeRouteFile,
+  looksLikeSocketIOFile,
 } from './index';
 import { AgentAction, AgentManifest, AuthConfig, AuthType } from './types';
 
@@ -40,8 +42,9 @@ program
 
     console.log(`🔍 Found ${files.length} relevant files.`);
 
-    const tsParser      = new TSParser(projectPath);
-    const expressParser = new ExpressParser(tsParser.getProject());
+    const tsParser       = new TSParser(projectPath);
+    const expressParser  = new ExpressParser(tsParser.getProject());
+    const socketParser   = new SocketIOParser(tsParser.getProject());
     const actions: AgentAction[] = [];
 
     for (const file of files) {
@@ -56,6 +59,10 @@ program
           if (looksLikeRouteFile(content)) {
             const expressActions = await expressParser.parseFile(file, projectPath);
             actions.push(...expressActions);
+          }
+          if (looksLikeSocketIOFile(content)) {
+            const socketActions = await socketParser.parseFile(file, projectPath);
+            actions.push(...socketActions);
           }
         } catch { /* ignore */ }
       }
@@ -133,7 +140,7 @@ program
 // ─── Structural validator ────────────────────────────────────────────────────
 
 const SAFETY_LEVELS  = new Set(['read', 'write', 'financial', 'destructive', 'confidential']);
-const ACTION_TYPES   = new Set(['api', 'contract', 'function']);
+const ACTION_TYPES   = new Set(['api', 'contract', 'function', 'socket']);
 const AUTH_TYPES     = new Set(['none', 'bearer', 'api-key', 'oauth2', 'basic', 'farcaster-frame', 'cookie']);
 const INTENT_RE      = /^[a-z][a-z0-9]*\.[a-z][a-z0-9]*$/;
 

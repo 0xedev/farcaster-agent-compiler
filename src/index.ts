@@ -2,6 +2,7 @@ export * from './types';
 export { DiscoveryService } from './discovery/service';
 export { TSParser } from './parser/ts-parser';
 export { ExpressParser, looksLikeRouteFile } from './parser/express-parser';
+export { SocketIOParser, looksLikeSocketIOFile } from './parser/socketio-parser';
 export { ContractParser } from './parser/contract-parser';
 export { ZodExtractor } from './parser/zod-extractor';
 export { ManifestGenerator } from './generator/json';
