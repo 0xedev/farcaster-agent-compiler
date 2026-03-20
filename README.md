@@ -8,10 +8,10 @@ Works with Next.js (App Router + Pages Router), Express, Hono, Fastify, and any 
 
 ```bash
 # Run once, no install
-npx @0xedev/agentjson
+npx @0xdeve/agentjson
 
 # Or install globally
-npm install -g @0xedev/agentjson
+npm install -g @0xdeve/agentjson
 ```
 
 ## Usage
@@ -189,7 +189,7 @@ Commands:
 
 ## JSON Schema
 
-A full JSON Schema is bundled at `node_modules/@0xedev/agentjson/schema/agent.schema.json` for editor autocomplete and CI validation.
+A full JSON Schema is bundled at `node_modules/@0xdeve/agentjson/schema/agent.schema.json` for editor autocomplete and CI validation.
 
 ---
 
