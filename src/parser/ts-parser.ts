@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import { ContractParser } from './contract-parser';
 import { ZodExtractor } from './zod-extractor';
 import { CapabilityDetector } from './capability-detector';
+import { inferIntent, classifySafety, deriveAgentSafe } from './intent-classifier';
 
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']);
 
@@ -73,8 +74,7 @@ export class TSParser {
     const isAppRouterRoute = /app\/api\/.+\/route\.(ts|tsx|js|jsx)$/.test(relativePath);
     if (isAppRouterRoute) {
       const zodSchemas = this.zodExtractor.extractSchemas(sourceFile);
-      const zodShape = this.zodExtractor.findUsedSchema(sourceFile, zodSchemas);
-      const parameters = { properties: zodShape ?? {} };
+      const zodInputs = this.zodExtractor.findUsedSchema(sourceFile, zodSchemas) ?? {};
       const routeName = this.routeNameFromPath(relativePath);
       const location = this.routeLocationFromPath(relativePath);
 
@@ -83,16 +83,21 @@ export class TSParser {
         if (!func.isExported()) continue;
         const methodName = func.getName();
         if (!methodName || !HTTP_METHODS.has(methodName)) continue;
-        if (actions.some(a => a.name === `${routeName}_${methodName}`)) continue;
+        const actionName = `${routeName}_${methodName}`;
+        if (actions.some(a => a.name === actionName)) continue;
 
+        const safety = classifySafety({ name: actionName, httpMethod: methodName, type: 'api' });
         actions.push({
-          name: `${routeName}_${methodName}`,
+          name: actionName,
           description: `${methodName} ${location}`,
+          intent: inferIntent(actionName),
           type: 'api',
           location,
           method: methodName,
-          parameters,
-          returns: { type: 'any' },
+          safety,
+          agentSafe: deriveAgentSafe(safety),
+          inputs: zodInputs,
+          outputs: { type: 'any' },
         });
       }
 
@@ -102,16 +107,21 @@ export class TSParser {
         if (!HTTP_METHODS.has(methodName)) continue;
         const stmt = varDecl.getVariableStatement();
         if (!stmt?.isExported()) continue;
-        if (actions.some(a => a.name === `${routeName}_${methodName}`)) continue;
+        const actionName = `${routeName}_${methodName}`;
+        if (actions.some(a => a.name === actionName)) continue;
 
+        const safety = classifySafety({ name: actionName, httpMethod: methodName, type: 'api' });
         actions.push({
-          name: `${routeName}_${methodName}`,
+          name: actionName,
           description: `${methodName} ${location}`,
+          intent: inferIntent(actionName),
           type: 'api',
           location,
           method: methodName,
-          parameters,
-          returns: { type: 'any' },
+          safety,
+          agentSafe: deriveAgentSafe(safety),
+          inputs: zodInputs,
+          outputs: { type: 'any' },
         });
       }
     }
@@ -124,15 +134,19 @@ export class TSParser {
       const method = this.detectHttpMethod(sourceFile);
       const actionName = path.basename(filePath, path.extname(filePath));
       const location = '/' + relativePath.replace(/\.[^/.]+$/, '').replace(/^pages\/api\//, 'api/');
+      const safety = classifySafety({ name: actionName, httpMethod: method, type: 'api' });
 
       actions.push({
         name: actionName,
         description: `API endpoint at /${relativePath}`,
+        intent: inferIntent(actionName),
         type: 'api',
         location,
         method,
-        parameters: { properties: zodShape ?? {} },
-        returns: { type: 'any' },
+        safety,
+        agentSafe: deriveAgentSafe(safety),
+        inputs: zodShape ?? {},
+        outputs: { type: 'any' },
       });
     }
 
@@ -145,15 +159,19 @@ export class TSParser {
       const method = this.detectHttpMethod(sourceFile);
       const actionName = path.basename(filePath, path.extname(filePath));
       const location = '/' + relativePath.replace(/\.[^/.]+$/, '');
+      const safety = classifySafety({ name: actionName, httpMethod: method, type: 'api' });
 
       actions.push({
         name: actionName,
         description: `API endpoint at /${relativePath}`,
+        intent: inferIntent(actionName),
         type: 'api',
         location,
         method,
-        parameters: { properties: zodShape ?? {} },
-        returns: { type: 'any' },
+        safety,
+        agentSafe: deriveAgentSafe(safety),
+        inputs: zodShape ?? {},
+        outputs: { type: 'any' },
       });
     }
 
@@ -179,13 +197,17 @@ export class TSParser {
         const init = varDecl.getInitializer();
         if (!init || (!Node.isArrowFunction(init) && !Node.isFunctionExpression(init))) continue;
 
+        const safety = classifySafety({ name, type: 'function' });
         actions.push({
           name,
           description: `Server Action: ${name}`,
+          intent: inferIntent(name),
           type: 'function',
           location: `./${relativePath}`,
-          parameters: { properties: this.extractFunctionParams(init as any) },
-          returns: { type: 'any' },
+          safety,
+          agentSafe: deriveAgentSafe(safety),
+          inputs: this.extractFunctionParams(init as any),
+          outputs: { type: 'any' },
         });
       }
     }
@@ -265,7 +287,23 @@ export class TSParser {
       jsDoc?.getTags().find(t => t.getTagName() === 'description')?.getComment()?.toString().trim() ||
       `Function ${name}`;
 
-    const parameters: Record<string, any> = {};
+    // Allow @agent-action intent=finance.transfer override
+    const intentOverride = jsDoc
+      ?.getTags()
+      .find(t => t.getTagName() === 'agent-action')
+      ?.getComment()
+      ?.toString()
+      .match(/intent=(\S+)/)?.[1];
+
+    // Allow @agent-action safety=financial override
+    const safetyOverride = jsDoc
+      ?.getTags()
+      .find(t => t.getTagName() === 'agent-action')
+      ?.getComment()
+      ?.toString()
+      .match(/safety=(read|write|financial|destructive)/)?.[1] as any;
+
+    const inputs: Record<string, any> = {};
     if ('getParameters' in declaration) {
       for (const param of declaration.getParameters()) {
         const paramName = param.getName();
@@ -273,7 +311,7 @@ export class TSParser {
           ?.getTags()
           .find(t => t.getTagName() === 'param' && (t as any).getName() === paramName);
 
-        parameters[paramName] = {
+        inputs[paramName] = {
           type: this.mapType(param.getType()),
           description: paramDoc?.getComment()?.toString().trim() || '',
           required: !param.isOptional(),
@@ -282,14 +320,18 @@ export class TSParser {
     }
 
     const returnType = 'getReturnType' in declaration ? declaration.getReturnType() : null;
+    const safety = safetyOverride ?? classifySafety({ name, type: 'function' });
 
     return {
       name,
       description,
+      intent: inferIntent(name, intentOverride),
       type: 'function',
       location: `./${relativePath}`,
-      parameters: { properties: parameters },
-      returns: {
+      safety,
+      agentSafe: deriveAgentSafe(safety),
+      inputs,
+      outputs: {
         type: returnType ? this.mapType(returnType) : 'any',
         description:
           jsDoc?.getTags().find(t => t.getTagName() === 'returns')?.getComment()?.toString().trim() || '',

@@ -2,6 +2,7 @@ import { SourceFile, Node } from 'ts-morph';
 import { AgentAction } from '../types';
 import * as fs from 'fs';
 import * as path from 'path';
+import { inferIntent, classifySafety, deriveAgentSafe } from './intent-classifier';
 
 /** viem/wagmi chain variable names → EIP-155 chain IDs */
 const KNOWN_CHAINS: Record<string, number> = {
@@ -46,17 +47,21 @@ export class ContractParser {
 
         const isReadOnly = item.stateMutability === 'view' || item.stateMutability === 'pure';
 
+        const safety = classifySafety({ name: item.name, isReadOnly, type: 'contract' });
         actions.push({
           name: item.name,
           description: isReadOnly
             ? `Read contract: ${item.name}`
             : `Write contract: ${item.name}`,
+          intent: inferIntent(item.name),
           type: 'contract',
           location: `./${path.relative(this.projectPath, filePath)}`,
           abiFunction: item.name,
           isReadOnly,
-          parameters: { properties: this.mapAbiInputs(item.inputs ?? []) },
-          returns: {
+          safety,
+          agentSafe: deriveAgentSafe(safety),
+          inputs: this.mapAbiInputs(item.inputs ?? []),
+          outputs: {
             type: this.mapAbiOutputs(item.outputs ?? []),
             description: '',
           },
@@ -125,15 +130,19 @@ export class ContractParser {
         }
       }
 
+      const safety = classifySafety({ name: functionName, isReadOnly: false, type: 'contract' });
       actions.push({
         name: functionName,
         description: `Contract interaction: ${functionName}`,
+        intent: inferIntent(functionName),
         type: 'contract',
         location: sourceFile.getFilePath(),
         abiFunction: functionName,
         ...(chainId !== undefined ? { chainId } : {}),
-        parameters: { properties: parameters },
-        returns: { type: 'any' },
+        safety,
+        agentSafe: deriveAgentSafe(safety),
+        inputs: parameters,
+        outputs: { type: 'any' },
       });
     });
 

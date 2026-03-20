@@ -37,6 +37,7 @@ exports.ContractParser = void 0;
 const ts_morph_1 = require("ts-morph");
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const intent_classifier_1 = require("./intent-classifier");
 /** viem/wagmi chain variable names → EIP-155 chain IDs */
 const KNOWN_CHAINS = {
     mainnet: 1,
@@ -80,17 +81,21 @@ class ContractParser {
                 if (item.type !== 'function')
                     continue;
                 const isReadOnly = item.stateMutability === 'view' || item.stateMutability === 'pure';
+                const safety = (0, intent_classifier_1.classifySafety)({ name: item.name, isReadOnly, type: 'contract' });
                 actions.push({
                     name: item.name,
                     description: isReadOnly
                         ? `Read contract: ${item.name}`
                         : `Write contract: ${item.name}`,
+                    intent: (0, intent_classifier_1.inferIntent)(item.name),
                     type: 'contract',
                     location: `./${path.relative(this.projectPath, filePath)}`,
                     abiFunction: item.name,
                     isReadOnly,
-                    parameters: { properties: this.mapAbiInputs(item.inputs ?? []) },
-                    returns: {
+                    safety,
+                    agentSafe: (0, intent_classifier_1.deriveAgentSafe)(safety),
+                    inputs: this.mapAbiInputs(item.inputs ?? []),
+                    outputs: {
                         type: this.mapAbiOutputs(item.outputs ?? []),
                         description: '',
                     },
@@ -150,15 +155,19 @@ class ContractParser {
                     parameters = this.mapAbiInputs(abiFunc.inputs ?? []);
                 }
             }
+            const safety = (0, intent_classifier_1.classifySafety)({ name: functionName, isReadOnly: false, type: 'contract' });
             actions.push({
                 name: functionName,
                 description: `Contract interaction: ${functionName}`,
+                intent: (0, intent_classifier_1.inferIntent)(functionName),
                 type: 'contract',
                 location: sourceFile.getFilePath(),
                 abiFunction: functionName,
                 ...(chainId !== undefined ? { chainId } : {}),
-                parameters: { properties: parameters },
-                returns: { type: 'any' },
+                safety,
+                agentSafe: (0, intent_classifier_1.deriveAgentSafe)(safety),
+                inputs: parameters,
+                outputs: { type: 'any' },
             });
         });
         return actions;

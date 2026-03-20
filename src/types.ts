@@ -1,3 +1,5 @@
+export type SafetyLevel = 'read' | 'write' | 'financial' | 'destructive';
+
 export interface ParameterProperty {
   type: string;
   description?: string;
@@ -16,16 +18,20 @@ export interface ParameterProperty {
 export interface AgentAction {
   name: string;
   description: string;
+  /** Standardized semantic intent, e.g. "game.play", "finance.transfer", "social.cast" */
+  intent: string;
   type: 'api' | 'contract' | 'function';
   location: string;
   method?: string;
   abiFunction?: string;
   isReadOnly?: boolean;
   chainId?: number;
-  parameters: {
-    properties: Record<string, ParameterProperty>;
-  };
-  returns: {
+  /** Safety classification for agent policy enforcement */
+  safety: SafetyLevel;
+  /** True when the action can be executed autonomously without human confirmation */
+  agentSafe: boolean;
+  inputs: Record<string, ParameterProperty>;
+  outputs: {
     type: string;
     description?: string;
   };
@@ -34,6 +40,8 @@ export interface AgentAction {
 export interface AppMetadata {
   name?: string;
   description?: string;
+  author?: string;
+  url?: string;
   iconUrl?: string;
   homeUrl?: string;
   imageUrl?: string;
@@ -45,6 +53,8 @@ export interface AgentManifest {
   name: string;
   description: string;
   version: string;
+  author?: string;
+  url?: string;
   metadata: AppMetadata;
   capabilities: string[];
   actions: AgentAction[];
