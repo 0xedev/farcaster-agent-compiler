@@ -36,6 +36,18 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DiscoveryService = void 0;
 const fs = __importStar(require("fs"));
 const tinyglobby_1 = require("tinyglobby");
+/** Glob negations applied to every pattern to keep node_modules and build artifacts out. */
+const ALWAYS_EXCLUDE = [
+    '!**/node_modules/**',
+    '!**/.next/**',
+    '!**/dist/**',
+    '!**/.turbo/**',
+    '!**/.cache/**',
+    '!**/.git/**',
+    '!**/out/**',
+    '!**/build/**',
+    '!**/.vercel/**',
+];
 class DiscoveryService {
     projectPath;
     constructor(projectPath) {
@@ -43,32 +55,38 @@ class DiscoveryService {
     }
     async findRelevantFiles() {
         const relevantFiles = [];
-        // 0. Find Farcaster manifest
+        // 0. Farcaster manifest (app identity / metadata)
         const manifests = await (0, tinyglobby_1.glob)([
             '.well-known/farcaster.json',
-            'public/.well-known/farcaster.json'
+            'public/.well-known/farcaster.json',
+            '**/public/.well-known/farcaster.json',
         ], { cwd: this.projectPath, absolute: true });
         relevantFiles.push(...manifests);
-        // 0.5 Find ABI files
+        // 0.5. ABI JSON files (smart contract definitions)
         const abis = await (0, tinyglobby_1.glob)([
             '**/*ABI.json',
             '**/abi/*.json',
-            'contracts/*.json'
+            '**/abis/*.json',
+            'contracts/*.json',
+            '**/contracts/*.json',
+            ...ALWAYS_EXCLUDE,
         ], { cwd: this.projectPath, absolute: true });
         relevantFiles.push(...abis);
-        // 1. Find API routes (Next.js)
+        // 1. API routes — support monorepo layouts (apps/*/src/app/api, apps/*/pages/api, etc.)
         const apiRoutes = await (0, tinyglobby_1.glob)([
-            'pages/api/**/*.{ts,js,tsx,jsx}',
-            'app/api/**/*.{ts,js,tsx,jsx}',
-            'api/**/*.{ts,js,tsx,jsx}' // Generic API folder
+            // Next.js App Router
+            '**/app/api/**/*.{ts,js,tsx,jsx}',
+            // Next.js Pages Router
+            '**/pages/api/**/*.{ts,js,tsx,jsx}',
+            // Generic api/ folder
+            '**/api/**/*.{ts,js,tsx,jsx}',
+            ...ALWAYS_EXCLUDE,
         ], { cwd: this.projectPath, absolute: true });
         relevantFiles.push(...apiRoutes);
-        // 2. Find files with @agent-action annotation
+        // 2. Scan all TS/TSX files for signal keywords
         const allTsFiles = await (0, tinyglobby_1.glob)([
             '**/*.{ts,tsx}',
-            '!node_modules/**',
-            '!.next/**',
-            '!dist/**'
+            ...ALWAYS_EXCLUDE,
         ], { cwd: this.projectPath, absolute: true });
         for (const file of allTsFiles) {
             if (relevantFiles.includes(file))
