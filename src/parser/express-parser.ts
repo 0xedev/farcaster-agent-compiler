@@ -29,8 +29,9 @@ const HTTP_METHODS_UPPER: Record<string, string> = {
 export class ExpressParser {
   private project: Project;
 
-  constructor() {
-    this.project = new Project({
+  /** Pass the shared Project from TSParser to avoid duplicate AST construction. */
+  constructor(sharedProject?: Project) {
+    this.project = sharedProject ?? new Project({
       compilerOptions: { allowJs: true, checkJs: false },
     });
   }

@@ -32,6 +32,9 @@ export class TSParser {
     this.readPackageJsonMetadata();
   }
 
+  /** Expose the shared Project so callers can pass it to other parsers, avoiding duplicate AST work. */
+  getProject(): Project { return this.project; }
+
   /** Populate _appMetadata from package.json as a baseline fallback */
   private readPackageJsonMetadata(): void {
     const pkgPath = path.join(this.projectPath, 'package.json');

@@ -38,7 +38,7 @@ program
     console.log(`🔍 Found ${files.length} relevant files.`);
 
     const tsParser      = new TSParser(projectPath);
-    const expressParser = new ExpressParser();
+    const expressParser = new ExpressParser(tsParser.getProject());
     const actions: AgentAction[] = [];
 
     for (const file of files) {
