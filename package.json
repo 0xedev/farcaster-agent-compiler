@@ -4,8 +4,9 @@
   "description": "Universal agent manifest compiler — generates agent.json for any web app so AI agents can discover and interact with it",
   "main": "dist/index.js",
   "bin": {
-    "agentjson": "dist/index.js",
-    "agent-json": "dist/index.js"
+    "agentjson": "dist/cli.js",
+    "agent-json": "dist/cli.js",
+    "farcaster-agent-compiler": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -14,8 +15,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && node -e \"const fs=require('fs');const f='dist/index.js';const c=fs.readFileSync(f,'utf8');if(!c.startsWith('#!/'))fs.writeFileSync(f,'#!/usr/bin/env node\\n'+c);\"",
-    "start": "node dist/index.js",
+    "build": "tsc && node -e \"const fs=require('fs');const f='dist/cli.js';const c=fs.readFileSync(f,'utf8');if(!c.startsWith('#!/'))fs.writeFileSync(f,'#!/usr/bin/env node\\n'+c);\"",
+    "start": "node dist/cli.js",
     "test": "jest"
   },
   "repository": {
