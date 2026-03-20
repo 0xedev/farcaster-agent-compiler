@@ -90,8 +90,18 @@ export function inferIntent(name: string, overrideIntent?: string): string {
 // ─── Safety classification ────────────────────────────────────────────────
 
 // No trailing \b — camelCase verbs like sendPayment, deleteAccount need prefix matching only
-const FINANCIAL_VERBS = /\b(transfer|send|pay|swap|exchange|trade|stake|unstake|deposit|withdraw|buy|purchase|mint|approve|borrow|repay|liquidate|bond|unbond)/i;
-const DESTRUCTIVE_VERBS = /\b(delete|remove|destroy|burn|archive|purge|wipe|clear)/i;
+const FINANCIAL_VERBS    = /\b(transfer|send|pay|swap|exchange|trade|stake|unstake|deposit|withdraw|buy|purchase|mint|approve|borrow|repay|liquidate|bond|unbond)/i;
+const DESTRUCTIVE_VERBS  = /\b(delete|remove|destroy|burn|archive|purge|wipe|clear)/i;
+/**
+ * Matches names that handle PII, credentials, or sensitive identity data.
+ * An agent touching these fields should always require human confirmation and
+ * encrypted transport — even if the HTTP verb is a GET.
+ *
+ * Examples: resetPassword, storeCredentials, uploadPassport, submitKyc,
+ *           updateSsn, exportPrivateKey, getMedicalRecord.
+ */
+// No \b — these nouns appear anywhere in camelCase (resetPassword, submitKyc, getSsn)
+const CONFIDENTIAL_NOUNS = /(password|credential|privateKey|secretKey|biometric|ssn|taxId|pii|kyc|medicalRecord|healthRecord|passport|driverLicense|creditCard|cvv|encryptedData|identityVerif)/i;
 
 /**
  * Classify the safety level of an action.
@@ -99,10 +109,11 @@ const DESTRUCTIVE_VERBS = /\b(delete|remove|destroy|burn|archive|purge|wipe|clea
  * Rules (in priority order):
  *  1. ABI write (non view/pure) + financial verb → financial
  *  2. Financial verb anywhere → financial
- *  3. ABI view/pure → read
- *  4. GET HTTP method → read
- *  5. Destructive verb → destructive
- *  6. Everything else → write
+ *  3. Confidential noun (PII/credential) → confidential
+ *  4. ABI view/pure → read
+ *  5. GET HTTP method → read
+ *  6. Destructive verb → destructive
+ *  7. Everything else → write
  */
 export function classifySafety(opts: {
   name: string;
@@ -115,16 +126,18 @@ export function classifySafety(opts: {
   if (type === 'contract') {
     if (isReadOnly) return 'read';
     if (FINANCIAL_VERBS.test(name)) return 'financial';
+    if (CONFIDENTIAL_NOUNS.test(name)) return 'confidential';
     return 'write';
   }
 
-  if (httpMethod === 'GET') return 'read';
   if (FINANCIAL_VERBS.test(name)) return 'financial';
+  if (CONFIDENTIAL_NOUNS.test(name)) return 'confidential';
+  if (httpMethod === 'GET') return 'read';
   if (DESTRUCTIVE_VERBS.test(name)) return 'destructive';
   return 'write';
 }
 
-/** Derive agentSafe from safety level. Financial and destructive require human confirmation. */
+/** Derive agentSafe from safety level. Non-read/write levels require human confirmation. */
 export function deriveAgentSafe(safety: SafetyLevel): boolean {
   return safety === 'read' || safety === 'write';
 }
@@ -135,8 +148,11 @@ export function deriveAgentSafe(safety: SafetyLevel): boolean {
  * Rules:
  *  1. Contract: view/pure → public; write → required (or farcaster-signed if app uses frames)
  *  2. API GET + safety=read → public (heuristic: read endpoints are often open)
- *  3. Farcaster frame app + write/financial → farcaster-signed
- *  4. Everything else → required (inherits app-level auth)
+ *  3. Farcaster frame app + write/financial/confidential → farcaster-signed
+ *  4. Financial → required + payments:write scope
+ *  5. Confidential → required + pii:read or pii:write scope
+ *  6. Destructive → required
+ *  7. Everything else → required (inherits app-level auth)
  */
 export function inferActionAuth(opts: {
   safety: SafetyLevel;
@@ -152,17 +168,28 @@ export function inferActionAuth(opts: {
     return { required: 'public' };
   }
 
-  // Farcaster frame apps: write/financial/destructive actions need frame signature
-  if (appAuthType === 'farcaster-frame' && (safety === 'write' || safety === 'financial' || safety === 'destructive')) {
+  // Farcaster frame apps: sensitive actions need frame signature
+  if (appAuthType === 'farcaster-frame' &&
+      (safety === 'write' || safety === 'financial' || safety === 'destructive' || safety === 'confidential')) {
     return { required: 'farcaster-signed' };
   }
 
-  // Financial/destructive always require auth
-  if (safety === 'financial' || safety === 'destructive') {
+  // Financial → required + payments:write scope
+  if (safety === 'financial') {
+    return { required: 'required', scope: 'payments:write' };
+  }
+
+  // Confidential → required + pii scope (write for mutations, read for fetches)
+  if (safety === 'confidential') {
     return {
       required: 'required',
-      scope: safety === 'financial' ? 'payments:write' : undefined,
+      scope: httpMethod === 'GET' ? 'pii:read' : 'pii:write',
     };
+  }
+
+  // Destructive → required, no special scope
+  if (safety === 'destructive') {
+    return { required: 'required' };
   }
 
   // Read-only GET on a public (no-auth) app → public

@@ -1,4 +1,4 @@
-export type SafetyLevel = 'read' | 'write' | 'financial' | 'destructive';
+export type SafetyLevel = 'read' | 'write' | 'financial' | 'destructive' | 'confidential';
 
 export type AuthType = 'none' | 'bearer' | 'api-key' | 'oauth2' | 'basic' | 'farcaster-frame' | 'cookie';
 

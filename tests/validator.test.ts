@@ -4,7 +4,7 @@
  * independent of the CLI entry point.
  */
 
-const SAFETY_LEVELS  = new Set(['read', 'write', 'financial', 'destructive']);
+const SAFETY_LEVELS  = new Set(['read', 'write', 'financial', 'destructive', 'confidential']);
 const ACTION_TYPES   = new Set(['api', 'contract', 'function']);
 const AUTH_TYPES     = new Set(['none', 'bearer', 'api-key', 'oauth2', 'basic', 'farcaster-frame', 'cookie']);
 const INTENT_RE      = /^[a-z][a-z0-9]*\.[a-z][a-z0-9]*$/;

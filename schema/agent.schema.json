@@ -126,8 +126,8 @@
         },
         "safety": {
           "type": "string",
-          "enum": ["read", "write", "financial", "destructive"],
-          "description": "Safety classification for agent policy enforcement"
+          "enum": ["read", "write", "financial", "destructive", "confidential"],
+          "description": "Safety classification for agent policy enforcement. confidential = handles PII, credentials, or sensitive identity data requiring encrypted transport and human confirmation"
         },
         "agentSafe": {
           "type": "boolean",

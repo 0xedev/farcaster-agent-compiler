@@ -68,6 +68,28 @@ describe('classifySafety', () => {
   it('default POST → write', () => {
     expect(classifySafety({ name: 'createPost', httpMethod: 'POST', type: 'api' })).toBe('write');
   });
+
+  // confidential
+  it('password in name → confidential', () => {
+    expect(classifySafety({ name: 'resetPassword', httpMethod: 'POST', type: 'api' })).toBe('confidential');
+  });
+
+  it('credential noun → confidential', () => {
+    expect(classifySafety({ name: 'storeCredential', httpMethod: 'POST', type: 'api' })).toBe('confidential');
+  });
+
+  it('kyc noun → confidential', () => {
+    expect(classifySafety({ name: 'submitKyc', httpMethod: 'POST', type: 'api' })).toBe('confidential');
+  });
+
+  it('ssn → confidential even on GET', () => {
+    expect(classifySafety({ name: 'getSsn', httpMethod: 'GET', type: 'api' })).toBe('confidential');
+  });
+
+  it('financial beats confidential (e.g. creditCard payment endpoint)', () => {
+    // financial verbs take priority over confidential nouns
+    expect(classifySafety({ name: 'payCreditCard', httpMethod: 'POST', type: 'api' })).toBe('financial');
+  });
 });
 
 describe('deriveAgentSafe', () => {
@@ -76,9 +98,10 @@ describe('deriveAgentSafe', () => {
     expect(deriveAgentSafe('write')).toBe(true);
   });
 
-  it('financial and destructive are NOT agent-safe', () => {
+  it('financial, destructive, and confidential are NOT agent-safe', () => {
     expect(deriveAgentSafe('financial')).toBe(false);
     expect(deriveAgentSafe('destructive')).toBe(false);
+    expect(deriveAgentSafe('confidential')).toBe(false);
   });
 });
 
@@ -99,8 +122,25 @@ describe('inferActionAuth', () => {
     expect(auth.scope).toBe('payments:write');
   });
 
+  it('confidential POST → required with pii:write scope', () => {
+    const auth = inferActionAuth({ safety: 'confidential', httpMethod: 'POST', type: 'api' });
+    expect(auth.required).toBe('required');
+    expect(auth.scope).toBe('pii:write');
+  });
+
+  it('confidential GET → required with pii:read scope', () => {
+    const auth = inferActionAuth({ safety: 'confidential', httpMethod: 'GET', type: 'api' });
+    expect(auth.required).toBe('required');
+    expect(auth.scope).toBe('pii:read');
+  });
+
   it('farcaster-frame app + write → farcaster-signed', () => {
     const auth = inferActionAuth({ safety: 'write', appAuthType: 'farcaster-frame', type: 'api' });
+    expect(auth.required).toBe('farcaster-signed');
+  });
+
+  it('farcaster-frame app + confidential → farcaster-signed', () => {
+    const auth = inferActionAuth({ safety: 'confidential', appAuthType: 'farcaster-frame', type: 'api' });
     expect(auth.required).toBe('farcaster-signed');
   });
 
