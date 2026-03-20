@@ -1,3 +1,20 @@
+export type SafetyLevel = 'read' | 'write' | 'financial' | 'destructive' | 'confidential';
+
+export type AuthType = 'none' | 'bearer' | 'api-key' | 'oauth2' | 'basic' | 'farcaster-frame' | 'cookie';
+
+export interface AuthConfig {
+  /** How agents should authenticate with this app */
+  type: AuthType;
+  /** Header name for bearer/api-key auth (default: "Authorization") */
+  header?: string;
+  /** Header scheme prefix, e.g. "Bearer" or "Token" */
+  scheme?: string;
+  /** For api-key: the query param name if passed as query string */
+  queryParam?: string;
+  /** URL where agents/users can obtain credentials */
+  docsUrl?: string;
+}
+
 export interface ParameterProperty {
   type: string;
   description?: string;
@@ -13,19 +30,42 @@ export interface ParameterProperty {
   format?: string;
 }
 
+export interface ActionAuth {
+  /**
+   * Whether this specific action requires authentication.
+   * 'public'           — no credentials needed (e.g. read-only GET endpoints)
+   * 'required'         — agent must authenticate using app-level auth.type
+   * 'farcaster-signed' — Farcaster frame signature required (stronger than bearer)
+   */
+  required: 'public' | 'required' | 'farcaster-signed';
+  /** Optional OAuth/custom scope string, e.g. "payments:write", "admin" */
+  scope?: string;
+}
+
 export interface AgentAction {
   name: string;
   description: string;
+  /** Standardized semantic intent, e.g. "game.play", "finance.transfer", "social.cast" */
+  intent: string;
   type: 'api' | 'contract' | 'function';
   location: string;
   method?: string;
+  /** Auth requirement for this specific action (may differ from app-level auth) */
+  requiredAuth: ActionAuth;
   abiFunction?: string;
   isReadOnly?: boolean;
   chainId?: number;
-  parameters: {
-    properties: Record<string, ParameterProperty>;
-  };
-  returns: {
+  /**
+   * Deployed contract address. Either a literal `0x...` string,
+   * or `{ $env: "VAR_NAME" }` when resolved from an environment variable.
+   */
+  contractAddress?: string | { $env: string };
+  /** Safety classification for agent policy enforcement */
+  safety: SafetyLevel;
+  /** True when the action can be executed autonomously without human confirmation */
+  agentSafe: boolean;
+  inputs: Record<string, ParameterProperty>;
+  outputs: {
     type: string;
     description?: string;
   };
@@ -34,6 +74,8 @@ export interface AgentAction {
 export interface AppMetadata {
   name?: string;
   description?: string;
+  author?: string;
+  url?: string;
   iconUrl?: string;
   homeUrl?: string;
   imageUrl?: string;
@@ -45,6 +87,10 @@ export interface AgentManifest {
   name: string;
   description: string;
   version: string;
+  author?: string;
+  url?: string;
+  /** How agents authenticate with this app */
+  auth: AuthConfig;
   metadata: AppMetadata;
   capabilities: string[];
   actions: AgentAction[];

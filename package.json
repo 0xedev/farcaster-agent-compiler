@@ -1,38 +1,49 @@
 {
-  "name": "farcaster-agent-compiler",
-  "version": "1.2.0",
-  "description": "",
+  "name": "@0xedev/agentjson",
+  "version": "3.1.0",
+  "description": "Universal agent manifest compiler — generates agent.json for any web app so AI agents can discover and interact with it",
   "main": "dist/index.js",
   "bin": {
-    "farcaster-agent-compiler": "dist/index.js"
+    "agentjson": "dist/index.js",
+    "agent-json": "dist/index.js"
   },
   "files": [
     "dist",
+    "schema",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "build": "tsc && node -e \"const fs=require('fs');const f='dist/index.js';const c=fs.readFileSync(f,'utf8');if(!c.startsWith('#!/'))fs.writeFileSync(f,'#!/usr/bin/env node\\n'+c);\"",
     "start": "node dist/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/0xedev/farcaster-agent-compiler"
+    "url": "git+https://github.com/0xedev/farcaster-agent-compiler.git"
   },
   "keywords": [
-    "farcaster",
-    "agents",
+    "agent",
     "ai",
-    "mini-apps",
-    "frames",
-    "compiler"
+    "manifest",
+    "agent.json",
+    "compiler",
+    "farcaster",
+    "next.js",
+    "express",
+    "hono",
+    "fastify",
+    "openapi",
+    "llm"
   ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "^25.5.0",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "zod": "^4.3.6",

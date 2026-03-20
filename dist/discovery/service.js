@@ -35,7 +35,20 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DiscoveryService = void 0;
 const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
+const crypto = __importStar(require("crypto"));
 const tinyglobby_1 = require("tinyglobby");
+const express_parser_1 = require("../parser/express-parser");
+/** SHA-1 of a file's content — used for change detection caching. */
+function fileHash(filePath) {
+    try {
+        return crypto.createHash('sha1').update(fs.readFileSync(filePath)).digest('hex');
+    }
+    catch {
+        return '';
+    }
+}
+const CACHE_FILE = '.agentjson-cache.json';
 /** Glob negations applied to every pattern to keep node_modules and build artifacts out. */
 const ALWAYS_EXCLUDE = [
     '!**/node_modules/**',
@@ -47,11 +60,37 @@ const ALWAYS_EXCLUDE = [
     '!**/out/**',
     '!**/build/**',
     '!**/.vercel/**',
+    // Never scan env files — they may contain secrets
+    '!**/.env',
+    '!**/.env.*',
+    '!**/secrets/**',
+    '!**/credentials/**',
 ];
 class DiscoveryService {
     projectPath;
+    cache = {};
+    cachePath;
+    cacheModified = false;
     constructor(projectPath) {
         this.projectPath = projectPath;
+        this.cachePath = path.join(projectPath, CACHE_FILE);
+        this.loadCache();
+    }
+    loadCache() {
+        try {
+            this.cache = JSON.parse(fs.readFileSync(this.cachePath, 'utf8'));
+        }
+        catch {
+            this.cache = {};
+        }
+    }
+    saveCache() {
+        if (!this.cacheModified)
+            return;
+        try {
+            fs.writeFileSync(this.cachePath, JSON.stringify(this.cache, null, 2));
+        }
+        catch { /* ignore */ }
     }
     async findRelevantFiles() {
         const relevantFiles = [];
@@ -91,16 +130,29 @@ class DiscoveryService {
         for (const file of allTsFiles) {
             if (relevantFiles.includes(file))
                 continue;
+            const hash = fileHash(file);
+            const cached = this.cache[file];
+            // Cache hit: file unchanged, reuse previous relevance decision
+            if (cached && cached.hash === hash) {
+                if (cached.relevant)
+                    relevantFiles.push(file);
+                continue;
+            }
+            // Cache miss: read and classify
             const content = fs.readFileSync(file, 'utf8');
-            if (content.includes('@agent-action') ||
+            const relevant = content.includes('@agent-action') ||
                 content.includes('useWriteContract') ||
                 content.includes('useContractWrite') ||
                 content.includes('writeContract') ||
                 content.includes("'use server'") ||
-                content.includes('"use server"')) {
+                content.includes('"use server"') ||
+                (0, express_parser_1.looksLikeRouteFile)(content);
+            this.cache[file] = { hash, relevant };
+            this.cacheModified = true;
+            if (relevant)
                 relevantFiles.push(file);
-            }
         }
+        this.saveCache();
         return Array.from(new Set(relevantFiles));
     }
 }

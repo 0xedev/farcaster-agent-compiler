@@ -1,15 +1,21 @@
 "use strict";
 /**
- * Detects Farcaster mini-app capabilities by scanning file content for
- * known SDK usage patterns and by reading declared capabilities in farcaster.json.
+ * Detects app capabilities by scanning file content for known SDK/library patterns.
  *
- * Capabilities map to the Farcaster Frames v2 capability system:
- * https://docs.farcaster.xyz/developers/frames/v2/spec
+ * Capabilities are generic (not Farcaster-specific) so agent.json works for any app.
+ * Farcaster-specific signals are still included but map to generic capability names
+ * where possible, plus a 'farcaster' capability for Farcaster-specific features.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CapabilityDetector = void 0;
 const CAPABILITY_SIGNALS = [
-    // Wallet / onchain
+    // ── Payments ────────────────────────────────────────────────────────────
+    { pattern: 'stripe', capability: 'payments' },
+    { pattern: 'Stripe(', capability: 'payments' },
+    { pattern: 'loadStripe', capability: 'payments' },
+    { pattern: 'paymentIntent', capability: 'payments' },
+    { pattern: 'checkout.sessions', capability: 'payments' },
+    // ── Wallet / onchain ────────────────────────────────────────────────────
     { pattern: 'sdk.wallet', capability: 'wallet' },
     { pattern: 'ethProvider', capability: 'wallet' },
     { pattern: 'useWalletClient', capability: 'wallet' },
@@ -17,33 +23,59 @@ const CAPABILITY_SIGNALS = [
     { pattern: 'useAccount', capability: 'wallet' },
     { pattern: 'useWriteContract', capability: 'wallet' },
     { pattern: 'writeContract', capability: 'wallet' },
-    // Notifications
+    { pattern: 'ethers.provider', capability: 'wallet' },
+    { pattern: 'web3.eth', capability: 'wallet' },
+    // ── Notifications ───────────────────────────────────────────────────────
     { pattern: 'sendNotification', capability: 'notifications' },
     { pattern: 'useNotifications', capability: 'notifications' },
     { pattern: 'addFrameNotification', capability: 'notifications' },
     { pattern: 'sdk.actions.addFrameNotification', capability: 'notifications' },
-    // Navigation / deep linking
-    { pattern: 'sdk.actions.openUrl', capability: 'navigation' },
-    { pattern: 'sdk.openUrl', capability: 'navigation' },
-    { pattern: 'sdk.actions.openCompose', capability: 'navigation' },
-    // Location
+    { pattern: 'webpush', capability: 'notifications' },
+    { pattern: 'PushSubscription', capability: 'notifications' },
+    { pattern: 'Notification.requestPermission', capability: 'notifications' },
+    { pattern: 'sendEmail', capability: 'notifications' },
+    { pattern: 'resend.emails', capability: 'notifications' },
+    { pattern: 'nodemailer', capability: 'notifications' },
+    { pattern: 'twilio', capability: 'notifications' },
+    // ── File / media uploads ────────────────────────────────────────────────
+    { pattern: 'put(', capability: 'storage' },
+    { pattern: 'upload(', capability: 'storage' },
+    { pattern: 'multer', capability: 'storage' },
+    { pattern: 'formData()', capability: 'storage' },
+    { pattern: 'vercel/blob', capability: 'storage' },
+    { pattern: 'sdk.actions.openCamera', capability: 'storage' },
+    { pattern: 's3.upload', capability: 'storage' },
+    { pattern: 'cloudinary', capability: 'storage' },
+    // ── Social (generic) ────────────────────────────────────────────────────
+    { pattern: 'sdk.actions.composeCast', capability: 'social' },
+    { pattern: 'openCompose', capability: 'social' },
+    { pattern: 'composeCast', capability: 'social' },
+    // ── Location / geo ──────────────────────────────────────────────────────
     { pattern: 'sdk.context.location', capability: 'location' },
     { pattern: 'sdk.location', capability: 'location' },
-    // Haptics
-    { pattern: 'sdk.haptics', capability: 'haptics' },
-    { pattern: 'hapticFeedback', capability: 'haptics' },
-    // Contacts
+    { pattern: 'geolocation', capability: 'location' },
+    { pattern: 'navigator.geolocation', capability: 'location' },
+    // ── AI / LLM ────────────────────────────────────────────────────────────
+    { pattern: 'openai', capability: 'ai' },
+    { pattern: 'anthropic', capability: 'ai' },
+    { pattern: 'streamText(', capability: 'ai' },
+    { pattern: 'generateText(', capability: 'ai' },
+    { pattern: 'useChat(', capability: 'ai' },
+    // ── Farcaster-specific (preserved for Farcaster mini-apps) ───────────────
+    { pattern: 'sdk.actions.addFrame', capability: 'farcaster' },
+    { pattern: 'sdk.actions.ready', capability: 'farcaster' },
+    { pattern: 'sdk.haptics', capability: 'farcaster' },
+    { pattern: 'sdk.actions.openUrl', capability: 'navigation' },
     { pattern: 'requestContact', capability: 'contacts' },
-    { pattern: 'sdk.contacts', capability: 'contacts' },
-    // Frame management
-    { pattern: 'sdk.actions.addFrame', capability: 'addFrame' },
-    { pattern: 'sdk.actions.close', capability: 'close' },
-    { pattern: 'sdk.actions.ready', capability: 'ready' },
-    // Camera / media
-    { pattern: 'sdk.actions.openCamera', capability: 'camera' },
-    // Sharing
-    { pattern: 'sdk.actions.composeCast', capability: 'composeCast' },
-    { pattern: 'openCompose', capability: 'composeCast' },
+    // ── Database / data ─────────────────────────────────────────────────────
+    { pattern: 'prisma.', capability: 'database' },
+    { pattern: 'supabase.', capability: 'database' },
+    { pattern: 'drizzle(', capability: 'database' },
+    // ── Real-time ────────────────────────────────────────────────────────────
+    { pattern: 'socket.io', capability: 'realtime' },
+    { pattern: 'new WebSocket', capability: 'realtime' },
+    { pattern: 'pusher', capability: 'realtime' },
+    { pattern: 'ably', capability: 'realtime' },
 ];
 class CapabilityDetector {
     detected = new Set();

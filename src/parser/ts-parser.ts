@@ -5,6 +5,8 @@ import * as fs from 'fs';
 import { ContractParser } from './contract-parser';
 import { ZodExtractor } from './zod-extractor';
 import { CapabilityDetector } from './capability-detector';
+import { AuthDetector } from './auth-detector';
+import { inferIntent, classifySafety, deriveAgentSafe, inferActionAuth } from './intent-classifier';
 
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']);
 
@@ -13,6 +15,7 @@ export class TSParser {
   private contractParser: ContractParser;
   private zodExtractor: ZodExtractor;
   private capabilityDetector: CapabilityDetector;
+  private authDetector: AuthDetector;
   private _appMetadata: AppMetadata = {};
 
   constructor(private projectPath: string) {
@@ -22,6 +25,29 @@ export class TSParser {
     this.contractParser = new ContractParser(projectPath);
     this.zodExtractor = new ZodExtractor();
     this.capabilityDetector = new CapabilityDetector();
+    this.authDetector = new AuthDetector();
+    // Seed auth detection from package.json dependencies
+    this.authDetector.readPackageJson(projectPath);
+    // Seed app metadata from package.json (overridden by farcaster.json if present)
+    this.readPackageJsonMetadata();
+  }
+
+  /** Expose the shared Project so callers can pass it to other parsers, avoiding duplicate AST work. */
+  getProject(): Project { return this.project; }
+
+  /** Populate _appMetadata from package.json as a baseline fallback */
+  private readPackageJsonMetadata(): void {
+    const pkgPath = path.join(this.projectPath, 'package.json');
+    if (!fs.existsSync(pkgPath)) return;
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      this._appMetadata = {
+        name:        pkg.name,
+        description: pkg.description,
+        author:      typeof pkg.author === 'string' ? pkg.author : pkg.author?.name,
+        url:         pkg.homepage,
+      };
+    } catch { /* ignore */ }
   }
 
   async parseFile(filePath: string): Promise<AgentAction[]> {
@@ -73,8 +99,7 @@ export class TSParser {
     const isAppRouterRoute = /app\/api\/.+\/route\.(ts|tsx|js|jsx)$/.test(relativePath);
     if (isAppRouterRoute) {
       const zodSchemas = this.zodExtractor.extractSchemas(sourceFile);
-      const zodShape = this.zodExtractor.findUsedSchema(sourceFile, zodSchemas);
-      const parameters = { properties: zodShape ?? {} };
+      const zodInputs = this.zodExtractor.findUsedSchema(sourceFile, zodSchemas) ?? {};
       const routeName = this.routeNameFromPath(relativePath);
       const location = this.routeLocationFromPath(relativePath);
 
@@ -83,16 +108,22 @@ export class TSParser {
         if (!func.isExported()) continue;
         const methodName = func.getName();
         if (!methodName || !HTTP_METHODS.has(methodName)) continue;
-        if (actions.some(a => a.name === `${routeName}_${methodName}`)) continue;
+        const actionName = `${routeName}_${methodName}`;
+        if (actions.some(a => a.name === actionName)) continue;
 
+        const safety = classifySafety({ name: actionName, httpMethod: methodName, type: 'api' });
         actions.push({
-          name: `${routeName}_${methodName}`,
+          name: actionName,
           description: `${methodName} ${location}`,
+          intent: inferIntent(actionName),
           type: 'api',
           location,
           method: methodName,
-          parameters,
-          returns: { type: 'any' },
+          safety,
+          agentSafe: deriveAgentSafe(safety),
+          requiredAuth: this.actionAuth(safety, methodName),
+          inputs: zodInputs,
+          outputs: { type: 'any' },
         });
       }
 
@@ -102,16 +133,22 @@ export class TSParser {
         if (!HTTP_METHODS.has(methodName)) continue;
         const stmt = varDecl.getVariableStatement();
         if (!stmt?.isExported()) continue;
-        if (actions.some(a => a.name === `${routeName}_${methodName}`)) continue;
+        const actionName = `${routeName}_${methodName}`;
+        if (actions.some(a => a.name === actionName)) continue;
 
+        const safety = classifySafety({ name: actionName, httpMethod: methodName, type: 'api' });
         actions.push({
-          name: `${routeName}_${methodName}`,
+          name: actionName,
           description: `${methodName} ${location}`,
+          intent: inferIntent(actionName),
           type: 'api',
           location,
           method: methodName,
-          parameters,
-          returns: { type: 'any' },
+          safety,
+          agentSafe: deriveAgentSafe(safety),
+          requiredAuth: this.actionAuth(safety, methodName),
+          inputs: zodInputs,
+          outputs: { type: 'any' },
         });
       }
     }
@@ -124,15 +161,20 @@ export class TSParser {
       const method = this.detectHttpMethod(sourceFile);
       const actionName = path.basename(filePath, path.extname(filePath));
       const location = '/' + relativePath.replace(/\.[^/.]+$/, '').replace(/^pages\/api\//, 'api/');
+      const safety = classifySafety({ name: actionName, httpMethod: method, type: 'api' });
 
       actions.push({
         name: actionName,
         description: `API endpoint at /${relativePath}`,
+        intent: inferIntent(actionName),
         type: 'api',
         location,
         method,
-        parameters: { properties: zodShape ?? {} },
-        returns: { type: 'any' },
+        safety,
+        agentSafe: deriveAgentSafe(safety),
+        requiredAuth: this.actionAuth(safety, method),
+        inputs: zodShape ?? {},
+        outputs: { type: 'any' },
       });
     }
 
@@ -145,15 +187,20 @@ export class TSParser {
       const method = this.detectHttpMethod(sourceFile);
       const actionName = path.basename(filePath, path.extname(filePath));
       const location = '/' + relativePath.replace(/\.[^/.]+$/, '');
+      const safety = classifySafety({ name: actionName, httpMethod: method, type: 'api' });
 
       actions.push({
         name: actionName,
         description: `API endpoint at /${relativePath}`,
+        intent: inferIntent(actionName),
         type: 'api',
         location,
         method,
-        parameters: { properties: zodShape ?? {} },
-        returns: { type: 'any' },
+        safety,
+        agentSafe: deriveAgentSafe(safety),
+        requiredAuth: this.actionAuth(safety, method),
+        inputs: zodShape ?? {},
+        outputs: { type: 'any' },
       });
     }
 
@@ -179,13 +226,18 @@ export class TSParser {
         const init = varDecl.getInitializer();
         if (!init || (!Node.isArrowFunction(init) && !Node.isFunctionExpression(init))) continue;
 
+        const safety = classifySafety({ name, type: 'function' });
         actions.push({
           name,
           description: `Server Action: ${name}`,
+          intent: inferIntent(name),
           type: 'function',
           location: `./${relativePath}`,
-          parameters: { properties: this.extractFunctionParams(init as any) },
-          returns: { type: 'any' },
+          safety,
+          agentSafe: deriveAgentSafe(safety),
+          requiredAuth: this.actionAuth(safety, undefined, undefined, 'function'),
+          inputs: this.extractFunctionParams(init as any),
+          outputs: { type: 'any' },
         });
       }
     }
@@ -198,9 +250,11 @@ export class TSParser {
       }
     }
 
-    // 3g. Scan file content for Farcaster SDK capability signals
+    // 3g. Scan file content for capability + auth signals
     try {
-      this.capabilityDetector.scanContent(fs.readFileSync(filePath, 'utf8'));
+      const rawContent = fs.readFileSync(filePath, 'utf8');
+      this.capabilityDetector.scanContent(rawContent);
+      this.authDetector.scanContent(rawContent);
     } catch { /* ignore */ }
 
     return actions;
@@ -214,11 +268,26 @@ export class TSParser {
     return this.capabilityDetector.getCapabilities();
   }
 
+  public getAuth() {
+    return this.authDetector.getAuth();
+  }
+
   // ─── Helpers ─────────────────────────────────────────────────────────────
 
   private hasUseServerDirective(sourceFile: SourceFile): boolean {
     const text = sourceFile.getFullText().trimStart();
     return text.startsWith("'use server'") || text.startsWith('"use server"');
+  }
+
+  /** Convenience wrapper — infers per-action auth using the current app auth type. */
+  private actionAuth(safety: import('../types').SafetyLevel, httpMethod?: string, isReadOnly?: boolean, type: 'api' | 'contract' | 'function' = 'api') {
+    return inferActionAuth({
+      safety,
+      httpMethod,
+      isReadOnly,
+      appAuthType: this.authDetector.getAuth().type,
+      type,
+    });
   }
 
   /** Detect the HTTP method a Pages-Router handler accepts from req.method checks. */
@@ -265,7 +334,23 @@ export class TSParser {
       jsDoc?.getTags().find(t => t.getTagName() === 'description')?.getComment()?.toString().trim() ||
       `Function ${name}`;
 
-    const parameters: Record<string, any> = {};
+    // Allow @agent-action intent=finance.transfer override
+    const intentOverride = jsDoc
+      ?.getTags()
+      .find(t => t.getTagName() === 'agent-action')
+      ?.getComment()
+      ?.toString()
+      .match(/intent=(\S+)/)?.[1];
+
+    // Allow @agent-action safety=financial override
+    const safetyOverride = jsDoc
+      ?.getTags()
+      .find(t => t.getTagName() === 'agent-action')
+      ?.getComment()
+      ?.toString()
+      .match(/safety=(read|write|financial|destructive)/)?.[1] as any;
+
+    const inputs: Record<string, any> = {};
     if ('getParameters' in declaration) {
       for (const param of declaration.getParameters()) {
         const paramName = param.getName();
@@ -273,7 +358,7 @@ export class TSParser {
           ?.getTags()
           .find(t => t.getTagName() === 'param' && (t as any).getName() === paramName);
 
-        parameters[paramName] = {
+        inputs[paramName] = {
           type: this.mapType(param.getType()),
           description: paramDoc?.getComment()?.toString().trim() || '',
           required: !param.isOptional(),
@@ -282,14 +367,19 @@ export class TSParser {
     }
 
     const returnType = 'getReturnType' in declaration ? declaration.getReturnType() : null;
+    const safety = safetyOverride ?? classifySafety({ name, type: 'function' });
 
     return {
       name,
       description,
+      intent: inferIntent(name, intentOverride),
       type: 'function',
       location: `./${relativePath}`,
-      parameters: { properties: parameters },
-      returns: {
+      safety,
+      agentSafe: deriveAgentSafe(safety),
+      requiredAuth: this.actionAuth(safety, undefined, undefined, 'function'),
+      inputs,
+      outputs: {
         type: returnType ? this.mapType(returnType) : 'any',
         description:
           jsDoc?.getTags().find(t => t.getTagName() === 'returns')?.getComment()?.toString().trim() || '',

@@ -9,6 +9,10 @@ export type ZodFieldSchema = ParameterProperty & { required: boolean };
  * Handles patterns like:
  *   const Schema = z.object({ field: z.string().min(1).default('x'), ... })
  *   Schema.safeParse(req.body) / Schema.parse(await request.json())
+ *
+ * Also resolves schemas imported from other files (e.g. src/lib/schemas.ts),
+ * so centralised schema files are picked up even when the route file only
+ * imports and uses the schema rather than defining it inline.
  */
 export class ZodExtractor {
   extractSchemas(sourceFile: SourceFile): Map<string, Record<string, ZodFieldSchema>> {
@@ -27,10 +31,19 @@ export class ZodExtractor {
     return schemas;
   }
 
+  /**
+   * Walk .parse() / .safeParse() calls in the file. When the schema variable
+   * isn't defined locally, follow the import graph one level to find it in the
+   * source file that exported it.
+   */
   findUsedSchema(
     sourceFile: SourceFile,
     schemas: Map<string, Record<string, ZodFieldSchema>>
   ): Record<string, ZodFieldSchema> | null {
+    // Build a name→sourceFile map for every named import so we can resolve
+    // cross-file schemas on demand.
+    const importedFrom = this.buildImportMap(sourceFile);
+
     let found: Record<string, ZodFieldSchema> | null = null;
 
     sourceFile.forEachDescendant(node => {
@@ -44,12 +57,47 @@ export class ZodExtractor {
       if (method !== 'safeParse' && method !== 'parse') return;
 
       const schemaName = expr.getExpression().getText().trim();
+
+      // 1. Local schema defined in the same file
       if (schemas.has(schemaName)) {
         found = schemas.get(schemaName)!;
+        return;
+      }
+
+      // 2. Schema imported from another file — resolve and extract
+      const importedFile = importedFrom.get(schemaName);
+      if (importedFile) {
+        const remoteSchemas = this.extractSchemas(importedFile);
+        if (remoteSchemas.has(schemaName)) {
+          found = remoteSchemas.get(schemaName)!;
+        }
       }
     });
 
     return found;
+  }
+
+  /**
+   * Build a map of { localName → SourceFile } for every named import in the
+   * file whose module specifier resolves within the project.
+   */
+  private buildImportMap(sourceFile: SourceFile): Map<string, SourceFile> {
+    const map = new Map<string, SourceFile>();
+
+    for (const importDecl of sourceFile.getImportDeclarations()) {
+      const resolvedFile = importDecl.getModuleSpecifierSourceFile();
+      if (!resolvedFile) continue;
+
+      for (const named of importDecl.getNamedImports()) {
+        // alias: `import { BodySchema as Body }` → local name is "Body"
+        map.set(named.getAliasNode()?.getText() ?? named.getName(), resolvedFile);
+      }
+      // Default import: `import Schemas from './schemas'` — less common for Zod
+      const defaultImport = importDecl.getDefaultImport();
+      if (defaultImport) map.set(defaultImport.getText(), resolvedFile);
+    }
+
+    return map;
   }
 
   private tryExtractObjectShape(node: Node): Record<string, ZodFieldSchema> | null {
@@ -271,9 +319,13 @@ export class ZodExtractor {
   }
 
   private getLiteralValue(node: Node): any {
+    // Never embed env var values — store the variable name as a sentinel instead
+    const text = node.getText().trim();
+    const envMatch = text.match(/process\.env\.([A-Z0-9_]+)/);
+    if (envMatch) return { $env: envMatch[1] };
+
     if (Node.isStringLiteral(node)) return node.getLiteralValue();
     if (Node.isNumericLiteral(node)) return Number(node.getLiteralValue());
-    const text = node.getText();
     if (text === 'true') return true;
     if (text === 'false') return false;
     if (text === 'null') return null;

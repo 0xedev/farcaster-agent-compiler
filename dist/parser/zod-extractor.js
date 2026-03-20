@@ -271,11 +271,15 @@ class ZodExtractor {
         return undefined;
     }
     getLiteralValue(node) {
+        // Never embed env var values — store the variable name as a sentinel instead
+        const text = node.getText().trim();
+        const envMatch = text.match(/process\.env\.([A-Z0-9_]+)/);
+        if (envMatch)
+            return { $env: envMatch[1] };
         if (ts_morph_1.Node.isStringLiteral(node))
             return node.getLiteralValue();
         if (ts_morph_1.Node.isNumericLiteral(node))
             return Number(node.getLiteralValue());
-        const text = node.getText();
         if (text === 'true')
             return true;
         if (text === 'false')
