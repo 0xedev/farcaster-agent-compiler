@@ -1,9 +1,10 @@
 import { Project, SourceFile, JSDoc, Node, Type } from 'ts-morph';
-import { AgentAction } from '../types';
+import { AgentAction, AppMetadata } from '../types';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ContractParser } from './contract-parser';
 import { ZodExtractor } from './zod-extractor';
+import { CapabilityDetector } from './capability-detector';
 
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']);
 
@@ -11,6 +12,8 @@ export class TSParser {
   private project: Project;
   private contractParser: ContractParser;
   private zodExtractor: ZodExtractor;
+  private capabilityDetector: CapabilityDetector;
+  private _appMetadata: AppMetadata = {};
 
   constructor(private projectPath: string) {
     this.project = new Project({
@@ -18,21 +21,27 @@ export class TSParser {
     });
     this.contractParser = new ContractParser(projectPath);
     this.zodExtractor = new ZodExtractor();
+    this.capabilityDetector = new CapabilityDetector();
   }
 
   async parseFile(filePath: string): Promise<AgentAction[]> {
     const relativePath = path.relative(this.projectPath, filePath).replace(/\\/g, '/');
 
-    // 1. farcaster.json — extract app metadata, no actions
+    // 1. farcaster.json — extract full app metadata and declared capabilities
     if (relativePath.endsWith('farcaster.json')) {
       try {
         const content = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-        if (content.frame) {
-          (this as any)._appMetadata = {
-            name: content.frame.name,
-            description: content.frame.buttonTitle || `Farcaster App: ${content.frame.name}`,
-          };
-        }
+        const frame = content.frame ?? {};
+        this._appMetadata = {
+          name:                 frame.name,
+          description:          frame.buttonTitle || (frame.name ? `Farcaster App: ${frame.name}` : undefined),
+          iconUrl:              frame.iconUrl,
+          homeUrl:              frame.homeUrl,
+          imageUrl:             frame.imageUrl,
+          splashImageUrl:       frame.splashImageUrl,
+          splashBackgroundColor: frame.splashBackgroundColor,
+        };
+        this.capabilityDetector.readManifest(frame);
       } catch { /* ignore */ }
       return [];
     }
@@ -189,11 +198,20 @@ export class TSParser {
       }
     }
 
+    // 3g. Scan file content for Farcaster SDK capability signals
+    try {
+      this.capabilityDetector.scanContent(fs.readFileSync(filePath, 'utf8'));
+    } catch { /* ignore */ }
+
     return actions;
   }
 
-  public getAppMetadata(): { name?: string; description?: string } | undefined {
-    return (this as any)._appMetadata;
+  public getAppMetadata(): AppMetadata {
+    return this._appMetadata;
+  }
+
+  public getCapabilities(): string[] {
+    return this.capabilityDetector.getCapabilities();
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────

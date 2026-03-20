@@ -6,14 +6,10 @@ const ts_morph_1 = require("ts-morph");
  * Extracts parameter schemas from Zod validators in a source file.
  *
  * Handles patterns like:
- *   const Schema = z.object({ field: z.string(), ... })
+ *   const Schema = z.object({ field: z.string().min(1).default('x'), ... })
  *   Schema.safeParse(req.body) / Schema.parse(await request.json())
  */
 class ZodExtractor {
-    /**
-     * Find all z.object(...) variable declarations in the file.
-     * Returns a map of variable name -> extracted field schemas.
-     */
     extractSchemas(sourceFile) {
         const schemas = new Map();
         for (const varDecl of sourceFile.getVariableDeclarations()) {
@@ -27,10 +23,6 @@ class ZodExtractor {
         }
         return schemas;
     }
-    /**
-     * Find which schema is used in `.safeParse(...)` or `.parse(...)` calls in the file.
-     * Returns the schema's field map, or null if none found.
-     */
     findUsedSchema(sourceFile, schemas) {
         let found = null;
         sourceFile.forEachDescendant(node => {
@@ -79,7 +71,112 @@ class ZodExtractor {
             return { type: 'any', required: !isOptional };
         const result = this.mapZodMethod(base.method, base.node);
         result.required = !isOptional;
+        // Walk the full chain to collect constraints
+        const constraints = this.extractConstraints(node, base.method);
+        Object.assign(result, constraints);
         return result;
+    }
+    /**
+     * Walk every method in the Zod chain to collect constraints:
+     * min, max, length, default, regex, email, url, uuid, datetime.
+     */
+    extractConstraints(node, baseType) {
+        const constraints = {};
+        const isNumeric = baseType === 'number' || baseType === 'bigint';
+        this.walkChain(node, (method, callNode) => {
+            const args = callNode.getArguments();
+            switch (method) {
+                case 'min': {
+                    const val = this.getNumericArg(args[0]);
+                    if (val !== undefined) {
+                        if (isNumeric)
+                            constraints.minimum = val;
+                        else
+                            constraints.minLength = val;
+                    }
+                    break;
+                }
+                case 'max': {
+                    const val = this.getNumericArg(args[0]);
+                    if (val !== undefined) {
+                        if (isNumeric)
+                            constraints.maximum = val;
+                        else
+                            constraints.maxLength = val;
+                    }
+                    break;
+                }
+                case 'gte': {
+                    const val = this.getNumericArg(args[0]);
+                    if (val !== undefined && isNumeric)
+                        constraints.minimum = val;
+                    break;
+                }
+                case 'lte': {
+                    const val = this.getNumericArg(args[0]);
+                    if (val !== undefined && isNumeric)
+                        constraints.maximum = val;
+                    break;
+                }
+                case 'gt': {
+                    const val = this.getNumericArg(args[0]);
+                    if (val !== undefined && isNumeric)
+                        constraints.minimum = val + Number.EPSILON;
+                    break;
+                }
+                case 'lt': {
+                    const val = this.getNumericArg(args[0]);
+                    if (val !== undefined && isNumeric)
+                        constraints.maximum = val - Number.EPSILON;
+                    break;
+                }
+                case 'length': {
+                    const val = this.getNumericArg(args[0]);
+                    if (val !== undefined) {
+                        constraints.minLength = val;
+                        constraints.maxLength = val;
+                    }
+                    break;
+                }
+                case 'default': {
+                    if (args[0]) {
+                        const val = this.getLiteralValue(args[0]);
+                        if (val !== undefined)
+                            constraints.default = val;
+                    }
+                    break;
+                }
+                case 'regex': {
+                    if (args[0] && ts_morph_1.Node.isRegularExpressionLiteral(args[0])) {
+                        const text = args[0].getText();
+                        const lastSlash = text.lastIndexOf('/');
+                        constraints.pattern = text.slice(1, lastSlash);
+                    }
+                    break;
+                }
+                case 'email':
+                    constraints.format = 'email';
+                    break;
+                case 'url':
+                    constraints.format = 'uri';
+                    break;
+                case 'uuid':
+                    constraints.format = 'uuid';
+                    break;
+                case 'datetime':
+                    constraints.format = 'date-time';
+                    break;
+                case 'ip':
+                    constraints.format = 'ip';
+                    break;
+                case 'cuid':
+                case 'cuid2':
+                case 'ulid':
+                    constraints.format = method;
+                    break;
+            }
+        });
+        return constraints;
     }
     mapZodMethod(method, node) {
         switch (method) {
@@ -87,7 +184,7 @@ class ZodExtractor {
             case 'number': return { type: 'number', required: true };
             case 'boolean': return { type: 'boolean', required: true };
             case 'bigint': return { type: 'number', required: true };
-            case 'date': return { type: 'string', description: 'ISO date string', required: true };
+            case 'date': return { type: 'string', format: 'date-time', required: true };
             case 'array': return { type: 'array', required: true };
             case 'object': return { type: 'object', required: true };
             case 'any':
@@ -127,9 +224,7 @@ class ZodExtractor {
                 return { type: 'string', required: true };
         }
     }
-    /**
-     * Walk a Zod chain (z.string().min(1).optional()) back to the root z.*() call.
-     */
+    /** Walk a Zod chain back to the root z.*() call. */
     getZodBase(node) {
         if (!ts_morph_1.Node.isCallExpression(node))
             return null;
@@ -140,12 +235,18 @@ class ZodExtractor {
         const obj = expr.getExpression();
         if (obj.getText() === 'z')
             return { method, node };
-        // Chained: z.string().min(1) — walk into the receiver
         return this.getZodBase(obj);
     }
-    /**
-     * Check whether a Zod chain contains a specific method name (e.g. 'optional').
-     */
+    /** Invoke callback for every method call in the chain (from outermost to innermost). */
+    walkChain(node, cb) {
+        if (!ts_morph_1.Node.isCallExpression(node))
+            return;
+        const expr = node.getExpression();
+        if (!ts_morph_1.Node.isPropertyAccessExpression(expr))
+            return;
+        cb(expr.getName(), node);
+        this.walkChain(expr.getExpression(), cb);
+    }
     chainContains(node, target) {
         if (!ts_morph_1.Node.isCallExpression(node))
             return false;
@@ -155,6 +256,33 @@ class ZodExtractor {
         if (expr.getName() === target)
             return true;
         return this.chainContains(expr.getExpression(), target);
+    }
+    getNumericArg(node) {
+        if (!node)
+            return undefined;
+        if (ts_morph_1.Node.isNumericLiteral(node))
+            return Number(node.getLiteralValue());
+        // Handle negative literals: -0.01 is PrefixUnaryExpression
+        if (ts_morph_1.Node.isPrefixUnaryExpression(node)) {
+            const operand = node.getOperand();
+            if (ts_morph_1.Node.isNumericLiteral(operand))
+                return -Number(operand.getLiteralValue());
+        }
+        return undefined;
+    }
+    getLiteralValue(node) {
+        if (ts_morph_1.Node.isStringLiteral(node))
+            return node.getLiteralValue();
+        if (ts_morph_1.Node.isNumericLiteral(node))
+            return Number(node.getLiteralValue());
+        const text = node.getText();
+        if (text === 'true')
+            return true;
+        if (text === 'false')
+            return false;
+        if (text === 'null')
+            return null;
+        return undefined;
     }
 }
 exports.ZodExtractor = ZodExtractor;

@@ -3,6 +3,35 @@ import { AgentAction } from '../types';
 import * as fs from 'fs';
 import * as path from 'path';
 
+/** viem/wagmi chain variable names → EIP-155 chain IDs */
+const KNOWN_CHAINS: Record<string, number> = {
+  mainnet:      1,
+  goerli:       5,
+  sepolia:      11155111,
+  optimism:     10,
+  optimismGoerli: 420,
+  optimismSepolia: 11155420,
+  base:         8453,
+  baseSepolia:  84532,
+  arbitrum:     42161,
+  arbitrumSepolia: 421614,
+  polygon:      137,
+  polygonMumbai: 80001,
+  polygonAmoy:  80002,
+  zora:         7777777,
+  zoraSepolia:  999999999,
+  avalanche:    43114,
+  bsc:          56,
+  gnosis:       100,
+  celo:         42220,
+  linea:        59144,
+  scroll:       534352,
+  mode:         34443,
+  blast:        81457,
+  mantle:       5000,
+  fraxtal:      252,
+};
+
 export class ContractParser {
   constructor(private projectPath: string) {}
 
@@ -55,21 +84,30 @@ export class ContractParser {
       // Collect relevant property assignments by key name
       let abiVarName: string | null = null;
       let functionName: string | null = null;
+      let chainId: number | undefined;
 
       for (const prop of props) {
         if (!Node.isPropertyAssignment(prop)) continue;
         const key = prop.getName();
+        const init = prop.getInitializer();
+        if (!init) continue;
 
         if (key === 'abi') {
-          const init = prop.getInitializer();
-          if (init) abiVarName = init.getText().trim();
+          abiVarName = init.getText().trim();
         }
 
-        if (key === 'functionName') {
-          const init = prop.getInitializer();
-          if (init && Node.isStringLiteral(init)) {
-            functionName = init.getLiteralValue();
-          }
+        if (key === 'functionName' && Node.isStringLiteral(init)) {
+          functionName = init.getLiteralValue();
+        }
+
+        // Explicit numeric chainId: { chainId: 8453 }
+        if (key === 'chainId' && Node.isNumericLiteral(init)) {
+          chainId = Number(init.getLiteralValue());
+        }
+
+        // Chain object reference: { chain: base } → resolve known chain names
+        if (key === 'chain') {
+          chainId = KNOWN_CHAINS[init.getText().trim()] ?? chainId;
         }
       }
 
@@ -93,6 +131,7 @@ export class ContractParser {
         type: 'contract',
         location: sourceFile.getFilePath(),
         abiFunction: functionName,
+        ...(chainId !== undefined ? { chainId } : {}),
         parameters: { properties: parameters },
         returns: { type: 'any' },
       });

@@ -37,6 +37,34 @@ exports.ContractParser = void 0;
 const ts_morph_1 = require("ts-morph");
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+/** viem/wagmi chain variable names → EIP-155 chain IDs */
+const KNOWN_CHAINS = {
+    mainnet: 1,
+    goerli: 5,
+    sepolia: 11155111,
+    optimism: 10,
+    optimismGoerli: 420,
+    optimismSepolia: 11155420,
+    base: 8453,
+    baseSepolia: 84532,
+    arbitrum: 42161,
+    arbitrumSepolia: 421614,
+    polygon: 137,
+    polygonMumbai: 80001,
+    polygonAmoy: 80002,
+    zora: 7777777,
+    zoraSepolia: 999999999,
+    avalanche: 43114,
+    bsc: 56,
+    gnosis: 100,
+    celo: 42220,
+    linea: 59144,
+    scroll: 534352,
+    mode: 34443,
+    blast: 81457,
+    mantle: 5000,
+    fraxtal: 252,
+};
 class ContractParser {
     projectPath;
     constructor(projectPath) {
@@ -88,20 +116,27 @@ class ContractParser {
             // Collect relevant property assignments by key name
             let abiVarName = null;
             let functionName = null;
+            let chainId;
             for (const prop of props) {
                 if (!ts_morph_1.Node.isPropertyAssignment(prop))
                     continue;
                 const key = prop.getName();
+                const init = prop.getInitializer();
+                if (!init)
+                    continue;
                 if (key === 'abi') {
-                    const init = prop.getInitializer();
-                    if (init)
-                        abiVarName = init.getText().trim();
+                    abiVarName = init.getText().trim();
                 }
-                if (key === 'functionName') {
-                    const init = prop.getInitializer();
-                    if (init && ts_morph_1.Node.isStringLiteral(init)) {
-                        functionName = init.getLiteralValue();
-                    }
+                if (key === 'functionName' && ts_morph_1.Node.isStringLiteral(init)) {
+                    functionName = init.getLiteralValue();
+                }
+                // Explicit numeric chainId: { chainId: 8453 }
+                if (key === 'chainId' && ts_morph_1.Node.isNumericLiteral(init)) {
+                    chainId = Number(init.getLiteralValue());
+                }
+                // Chain object reference: { chain: base } → resolve known chain names
+                if (key === 'chain') {
+                    chainId = KNOWN_CHAINS[init.getText().trim()] ?? chainId;
                 }
             }
             if (!abiVarName || !functionName)
@@ -121,6 +156,7 @@ class ContractParser {
                 type: 'contract',
                 location: sourceFile.getFilePath(),
                 abiFunction: functionName,
+                ...(chainId !== undefined ? { chainId } : {}),
                 parameters: { properties: parameters },
                 returns: { type: 'any' },
             });

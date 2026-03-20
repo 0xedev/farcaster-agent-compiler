@@ -1,24 +1,16 @@
 import { Node, SourceFile, CallExpression } from 'ts-morph';
+import { ParameterProperty } from '../types';
 
-export interface ZodFieldSchema {
-  type: string;
-  description?: string;
-  required: boolean;
-  enum?: string[];
-}
+export type ZodFieldSchema = ParameterProperty & { required: boolean };
 
 /**
  * Extracts parameter schemas from Zod validators in a source file.
  *
  * Handles patterns like:
- *   const Schema = z.object({ field: z.string(), ... })
+ *   const Schema = z.object({ field: z.string().min(1).default('x'), ... })
  *   Schema.safeParse(req.body) / Schema.parse(await request.json())
  */
 export class ZodExtractor {
-  /**
-   * Find all z.object(...) variable declarations in the file.
-   * Returns a map of variable name -> extracted field schemas.
-   */
   extractSchemas(sourceFile: SourceFile): Map<string, Record<string, ZodFieldSchema>> {
     const schemas = new Map<string, Record<string, ZodFieldSchema>>();
 
@@ -35,10 +27,6 @@ export class ZodExtractor {
     return schemas;
   }
 
-  /**
-   * Find which schema is used in `.safeParse(...)` or `.parse(...)` calls in the file.
-   * Returns the schema's field map, or null if none found.
-   */
   findUsedSchema(
     sourceFile: SourceFile,
     schemas: Map<string, Record<string, ZodFieldSchema>>
@@ -93,7 +81,97 @@ export class ZodExtractor {
 
     const result = this.mapZodMethod(base.method, base.node);
     result.required = !isOptional;
+
+    // Walk the full chain to collect constraints
+    const constraints = this.extractConstraints(node, base.method);
+    Object.assign(result, constraints);
+
     return result;
+  }
+
+  /**
+   * Walk every method in the Zod chain to collect constraints:
+   * min, max, length, default, regex, email, url, uuid, datetime.
+   */
+  private extractConstraints(node: Node, baseType: string): Partial<ZodFieldSchema> {
+    const constraints: Partial<ZodFieldSchema> = {};
+    const isNumeric = baseType === 'number' || baseType === 'bigint';
+
+    this.walkChain(node, (method, callNode) => {
+      const args = callNode.getArguments();
+
+      switch (method) {
+        case 'min': {
+          const val = this.getNumericArg(args[0]);
+          if (val !== undefined) {
+            if (isNumeric) constraints.minimum = val;
+            else constraints.minLength = val;
+          }
+          break;
+        }
+        case 'max': {
+          const val = this.getNumericArg(args[0]);
+          if (val !== undefined) {
+            if (isNumeric) constraints.maximum = val;
+            else constraints.maxLength = val;
+          }
+          break;
+        }
+        case 'gte': {
+          const val = this.getNumericArg(args[0]);
+          if (val !== undefined && isNumeric) constraints.minimum = val;
+          break;
+        }
+        case 'lte': {
+          const val = this.getNumericArg(args[0]);
+          if (val !== undefined && isNumeric) constraints.maximum = val;
+          break;
+        }
+        case 'gt': {
+          const val = this.getNumericArg(args[0]);
+          if (val !== undefined && isNumeric) constraints.minimum = val + Number.EPSILON;
+          break;
+        }
+        case 'lt': {
+          const val = this.getNumericArg(args[0]);
+          if (val !== undefined && isNumeric) constraints.maximum = val - Number.EPSILON;
+          break;
+        }
+        case 'length': {
+          const val = this.getNumericArg(args[0]);
+          if (val !== undefined) {
+            constraints.minLength = val;
+            constraints.maxLength = val;
+          }
+          break;
+        }
+        case 'default': {
+          if (args[0]) {
+            const val = this.getLiteralValue(args[0]);
+            if (val !== undefined) constraints.default = val;
+          }
+          break;
+        }
+        case 'regex': {
+          if (args[0] && Node.isRegularExpressionLiteral(args[0])) {
+            const text = args[0].getText();
+            const lastSlash = text.lastIndexOf('/');
+            constraints.pattern = text.slice(1, lastSlash);
+          }
+          break;
+        }
+        case 'email':    constraints.format = 'email';     break;
+        case 'url':      constraints.format = 'uri';       break;
+        case 'uuid':     constraints.format = 'uuid';      break;
+        case 'datetime': constraints.format = 'date-time'; break;
+        case 'ip':       constraints.format = 'ip';        break;
+        case 'cuid':
+        case 'cuid2':
+        case 'ulid':     constraints.format = method;      break;
+      }
+    });
+
+    return constraints;
   }
 
   private mapZodMethod(method: string, node: CallExpression): ZodFieldSchema {
@@ -102,7 +180,7 @@ export class ZodExtractor {
       case 'number':  return { type: 'number', required: true };
       case 'boolean': return { type: 'boolean', required: true };
       case 'bigint':  return { type: 'number', required: true };
-      case 'date':    return { type: 'string', description: 'ISO date string', required: true };
+      case 'date':    return { type: 'string', format: 'date-time', required: true };
       case 'array':   return { type: 'array', required: true };
       case 'object':  return { type: 'object', required: true };
       case 'any':
@@ -145,9 +223,7 @@ export class ZodExtractor {
     }
   }
 
-  /**
-   * Walk a Zod chain (z.string().min(1).optional()) back to the root z.*() call.
-   */
+  /** Walk a Zod chain back to the root z.*() call. */
   private getZodBase(node: Node): { method: string; node: CallExpression } | null {
     if (!Node.isCallExpression(node)) return null;
 
@@ -159,13 +235,20 @@ export class ZodExtractor {
 
     if (obj.getText() === 'z') return { method, node };
 
-    // Chained: z.string().min(1) — walk into the receiver
     return this.getZodBase(obj);
   }
 
-  /**
-   * Check whether a Zod chain contains a specific method name (e.g. 'optional').
-   */
+  /** Invoke callback for every method call in the chain (from outermost to innermost). */
+  private walkChain(node: Node, cb: (method: string, callNode: CallExpression) => void): void {
+    if (!Node.isCallExpression(node)) return;
+
+    const expr = node.getExpression();
+    if (!Node.isPropertyAccessExpression(expr)) return;
+
+    cb(expr.getName(), node as CallExpression);
+    this.walkChain(expr.getExpression(), cb);
+  }
+
   private chainContains(node: Node, target: string): boolean {
     if (!Node.isCallExpression(node)) return false;
 
@@ -174,5 +257,26 @@ export class ZodExtractor {
 
     if (expr.getName() === target) return true;
     return this.chainContains(expr.getExpression(), target);
+  }
+
+  private getNumericArg(node: Node | undefined): number | undefined {
+    if (!node) return undefined;
+    if (Node.isNumericLiteral(node)) return Number(node.getLiteralValue());
+    // Handle negative literals: -0.01 is PrefixUnaryExpression
+    if (Node.isPrefixUnaryExpression(node)) {
+      const operand = node.getOperand();
+      if (Node.isNumericLiteral(operand)) return -Number(operand.getLiteralValue());
+    }
+    return undefined;
+  }
+
+  private getLiteralValue(node: Node): any {
+    if (Node.isStringLiteral(node)) return node.getLiteralValue();
+    if (Node.isNumericLiteral(node)) return Number(node.getLiteralValue());
+    const text = node.getText();
+    if (text === 'true') return true;
+    if (text === 'false') return false;
+    if (text === 'null') return null;
+    return undefined;
   }
 }

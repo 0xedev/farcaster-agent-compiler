@@ -71,7 +71,7 @@ program
         }
     }
     const generator = new json_1.ManifestGenerator();
-    const manifest = generator.generate(Array.from(uniqueActions.values()), parser.getAppMetadata());
+    const manifest = generator.generate(Array.from(uniqueActions.values()), parser.getAppMetadata(), parser.getCapabilities());
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     fs.writeFileSync(outputPath, JSON.stringify(manifest, null, 2));
     console.log(`✅ Manifest generated at: ${outputPath}`);
