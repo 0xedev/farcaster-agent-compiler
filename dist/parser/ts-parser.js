@@ -40,6 +40,7 @@ const fs = __importStar(require("fs"));
 const contract_parser_1 = require("./contract-parser");
 const zod_extractor_1 = require("./zod-extractor");
 const capability_detector_1 = require("./capability-detector");
+const auth_detector_1 = require("./auth-detector");
 const intent_classifier_1 = require("./intent-classifier");
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']);
 class TSParser {
@@ -48,6 +49,7 @@ class TSParser {
     contractParser;
     zodExtractor;
     capabilityDetector;
+    authDetector;
     _appMetadata = {};
     constructor(projectPath) {
         this.projectPath = projectPath;
@@ -57,6 +59,27 @@ class TSParser {
         this.contractParser = new contract_parser_1.ContractParser(projectPath);
         this.zodExtractor = new zod_extractor_1.ZodExtractor();
         this.capabilityDetector = new capability_detector_1.CapabilityDetector();
+        this.authDetector = new auth_detector_1.AuthDetector();
+        // Seed auth detection from package.json dependencies
+        this.authDetector.readPackageJson(projectPath);
+        // Seed app metadata from package.json (overridden by farcaster.json if present)
+        this.readPackageJsonMetadata();
+    }
+    /** Populate _appMetadata from package.json as a baseline fallback */
+    readPackageJsonMetadata() {
+        const pkgPath = path.join(this.projectPath, 'package.json');
+        if (!fs.existsSync(pkgPath))
+            return;
+        try {
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+            this._appMetadata = {
+                name: pkg.name,
+                description: pkg.description,
+                author: typeof pkg.author === 'string' ? pkg.author : pkg.author?.name,
+                url: pkg.homepage,
+            };
+        }
+        catch { /* ignore */ }
     }
     async parseFile(filePath) {
         const relativePath = path.relative(this.projectPath, filePath).replace(/\\/g, '/');
@@ -127,6 +150,7 @@ class TSParser {
                     method: methodName,
                     safety,
                     agentSafe: (0, intent_classifier_1.deriveAgentSafe)(safety),
+                    requiredAuth: this.actionAuth(safety, methodName),
                     inputs: zodInputs,
                     outputs: { type: 'any' },
                 });
@@ -152,6 +176,7 @@ class TSParser {
                     method: methodName,
                     safety,
                     agentSafe: (0, intent_classifier_1.deriveAgentSafe)(safety),
+                    requiredAuth: this.actionAuth(safety, methodName),
                     inputs: zodInputs,
                     outputs: { type: 'any' },
                 });
@@ -175,6 +200,7 @@ class TSParser {
                 method,
                 safety,
                 agentSafe: (0, intent_classifier_1.deriveAgentSafe)(safety),
+                requiredAuth: this.actionAuth(safety, method),
                 inputs: zodShape ?? {},
                 outputs: { type: 'any' },
             });
@@ -197,6 +223,7 @@ class TSParser {
                 method,
                 safety,
                 agentSafe: (0, intent_classifier_1.deriveAgentSafe)(safety),
+                requiredAuth: this.actionAuth(safety, method),
                 inputs: zodShape ?? {},
                 outputs: { type: 'any' },
             });
@@ -233,6 +260,7 @@ class TSParser {
                     location: `./${relativePath}`,
                     safety,
                     agentSafe: (0, intent_classifier_1.deriveAgentSafe)(safety),
+                    requiredAuth: this.actionAuth(safety, undefined, undefined, 'function'),
                     inputs: this.extractFunctionParams(init),
                     outputs: { type: 'any' },
                 });
@@ -245,9 +273,11 @@ class TSParser {
                 actions.push(hook);
             }
         }
-        // 3g. Scan file content for Farcaster SDK capability signals
+        // 3g. Scan file content for capability + auth signals
         try {
-            this.capabilityDetector.scanContent(fs.readFileSync(filePath, 'utf8'));
+            const rawContent = fs.readFileSync(filePath, 'utf8');
+            this.capabilityDetector.scanContent(rawContent);
+            this.authDetector.scanContent(rawContent);
         }
         catch { /* ignore */ }
         return actions;
@@ -258,10 +288,23 @@ class TSParser {
     getCapabilities() {
         return this.capabilityDetector.getCapabilities();
     }
+    getAuth() {
+        return this.authDetector.getAuth();
+    }
     // ─── Helpers ─────────────────────────────────────────────────────────────
     hasUseServerDirective(sourceFile) {
         const text = sourceFile.getFullText().trimStart();
         return text.startsWith("'use server'") || text.startsWith('"use server"');
+    }
+    /** Convenience wrapper — infers per-action auth using the current app auth type. */
+    actionAuth(safety, httpMethod, isReadOnly, type = 'api') {
+        return (0, intent_classifier_1.inferActionAuth)({
+            safety,
+            httpMethod,
+            isReadOnly,
+            appAuthType: this.authDetector.getAuth().type,
+            type,
+        });
     }
     /** Detect the HTTP method a Pages-Router handler accepts from req.method checks. */
     detectHttpMethod(sourceFile) {
@@ -336,6 +379,7 @@ class TSParser {
             location: `./${relativePath}`,
             safety,
             agentSafe: (0, intent_classifier_1.deriveAgentSafe)(safety),
+            requiredAuth: this.actionAuth(safety, undefined, undefined, 'function'),
             inputs,
             outputs: {
                 type: returnType ? this.mapType(returnType) : 'any',

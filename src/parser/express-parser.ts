@@ -1,6 +1,6 @@
 import { Project, Node, SourceFile } from 'ts-morph';
 import { AgentAction } from '../types';
-import { inferIntent, classifySafety, deriveAgentSafe } from './intent-classifier';
+import { inferIntent, classifySafety, deriveAgentSafe, inferActionAuth } from './intent-classifier';
 import * as path from 'path';
 
 /**
@@ -84,6 +84,7 @@ export class ExpressParser {
         method: httpMethod,
         safety,
         agentSafe: deriveAgentSafe(safety),
+        requiredAuth: inferActionAuth({ safety, httpMethod, type: 'api' }),
         inputs: this.extractRouteParams(routePath),
         outputs: { type: 'any' },
       });

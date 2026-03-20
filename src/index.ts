@@ -172,6 +172,8 @@ function validateManifest(m: any): string[] {
         errors.push(`${prefix}: \`safety\` must be one of read|write|financial|destructive`);
       if (typeof action.agentSafe !== 'boolean')
         errors.push(`${prefix}: \`agentSafe\` must be a boolean`);
+      if (!action.requiredAuth || !['public','required','farcaster-signed'].includes(action.requiredAuth.required))
+        errors.push(`${prefix}: \`requiredAuth.required\` must be public | required | farcaster-signed`);
       if (typeof action.inputs !== 'object' || Array.isArray(action.inputs))
         errors.push(`${prefix}: \`inputs\` must be an object`);
       if (!action.outputs || typeof action.outputs.type !== 'string')

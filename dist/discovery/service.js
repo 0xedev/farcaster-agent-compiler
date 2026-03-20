@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DiscoveryService = void 0;
 const fs = __importStar(require("fs"));
 const tinyglobby_1 = require("tinyglobby");
+const express_parser_1 = require("../parser/express-parser");
 /** Glob negations applied to every pattern to keep node_modules and build artifacts out. */
 const ALWAYS_EXCLUDE = [
     '!**/node_modules/**',
@@ -47,6 +48,11 @@ const ALWAYS_EXCLUDE = [
     '!**/out/**',
     '!**/build/**',
     '!**/.vercel/**',
+    // Never scan env files — they may contain secrets
+    '!**/.env',
+    '!**/.env.*',
+    '!**/secrets/**',
+    '!**/credentials/**',
 ];
 class DiscoveryService {
     projectPath;
@@ -97,7 +103,8 @@ class DiscoveryService {
                 content.includes('useContractWrite') ||
                 content.includes('writeContract') ||
                 content.includes("'use server'") ||
-                content.includes('"use server"')) {
+                content.includes('"use server"') ||
+                (0, express_parser_1.looksLikeRouteFile)(content)) {
                 relevantFiles.push(file);
             }
         }

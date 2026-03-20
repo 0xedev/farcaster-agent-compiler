@@ -133,6 +133,22 @@
           "type": "boolean",
           "description": "True when the action can be executed autonomously without human confirmation"
         },
+        "requiredAuth": {
+          "type": "object",
+          "required": ["required"],
+          "additionalProperties": false,
+          "properties": {
+            "required": {
+              "type": "string",
+              "enum": ["public", "required", "farcaster-signed"],
+              "description": "Whether this action needs credentials"
+            },
+            "scope": {
+              "type": "string",
+              "description": "Optional OAuth/custom scope e.g. payments:write"
+            }
+          }
+        },
         "inputs": {
           "type": "object",
           "additionalProperties": { "$ref": "#/definitions/ParameterProperty" }

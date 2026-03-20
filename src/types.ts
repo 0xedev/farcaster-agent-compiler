@@ -30,6 +30,18 @@ export interface ParameterProperty {
   format?: string;
 }
 
+export interface ActionAuth {
+  /**
+   * Whether this specific action requires authentication.
+   * 'public'           — no credentials needed (e.g. read-only GET endpoints)
+   * 'required'         — agent must authenticate using app-level auth.type
+   * 'farcaster-signed' — Farcaster frame signature required (stronger than bearer)
+   */
+  required: 'public' | 'required' | 'farcaster-signed';
+  /** Optional OAuth/custom scope string, e.g. "payments:write", "admin" */
+  scope?: string;
+}
+
 export interface AgentAction {
   name: string;
   description: string;
@@ -38,6 +50,8 @@ export interface AgentAction {
   type: 'api' | 'contract' | 'function';
   location: string;
   method?: string;
+  /** Auth requirement for this specific action (may differ from app-level auth) */
+  requiredAuth: ActionAuth;
   abiFunction?: string;
   isReadOnly?: boolean;
   chainId?: number;

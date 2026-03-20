@@ -6,7 +6,7 @@ import { ContractParser } from './contract-parser';
 import { ZodExtractor } from './zod-extractor';
 import { CapabilityDetector } from './capability-detector';
 import { AuthDetector } from './auth-detector';
-import { inferIntent, classifySafety, deriveAgentSafe } from './intent-classifier';
+import { inferIntent, classifySafety, deriveAgentSafe, inferActionAuth } from './intent-classifier';
 
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']);
 
@@ -118,6 +118,7 @@ export class TSParser {
           method: methodName,
           safety,
           agentSafe: deriveAgentSafe(safety),
+          requiredAuth: this.actionAuth(safety, methodName),
           inputs: zodInputs,
           outputs: { type: 'any' },
         });
@@ -142,6 +143,7 @@ export class TSParser {
           method: methodName,
           safety,
           agentSafe: deriveAgentSafe(safety),
+          requiredAuth: this.actionAuth(safety, methodName),
           inputs: zodInputs,
           outputs: { type: 'any' },
         });
@@ -167,6 +169,7 @@ export class TSParser {
         method,
         safety,
         agentSafe: deriveAgentSafe(safety),
+        requiredAuth: this.actionAuth(safety, method),
         inputs: zodShape ?? {},
         outputs: { type: 'any' },
       });
@@ -192,6 +195,7 @@ export class TSParser {
         method,
         safety,
         agentSafe: deriveAgentSafe(safety),
+        requiredAuth: this.actionAuth(safety, method),
         inputs: zodShape ?? {},
         outputs: { type: 'any' },
       });
@@ -228,6 +232,7 @@ export class TSParser {
           location: `./${relativePath}`,
           safety,
           agentSafe: deriveAgentSafe(safety),
+          requiredAuth: this.actionAuth(safety, undefined, undefined, 'function'),
           inputs: this.extractFunctionParams(init as any),
           outputs: { type: 'any' },
         });
@@ -269,6 +274,17 @@ export class TSParser {
   private hasUseServerDirective(sourceFile: SourceFile): boolean {
     const text = sourceFile.getFullText().trimStart();
     return text.startsWith("'use server'") || text.startsWith('"use server"');
+  }
+
+  /** Convenience wrapper — infers per-action auth using the current app auth type. */
+  private actionAuth(safety: import('../types').SafetyLevel, httpMethod?: string, isReadOnly?: boolean, type: 'api' | 'contract' | 'function' = 'api') {
+    return inferActionAuth({
+      safety,
+      httpMethod,
+      isReadOnly,
+      appAuthType: this.authDetector.getAuth().type,
+      type,
+    });
   }
 
   /** Detect the HTTP method a Pages-Router handler accepts from req.method checks. */
@@ -358,6 +374,7 @@ export class TSParser {
       location: `./${relativePath}`,
       safety,
       agentSafe: deriveAgentSafe(safety),
+      requiredAuth: this.actionAuth(safety, undefined, undefined, 'function'),
       inputs,
       outputs: {
         type: returnType ? this.mapType(returnType) : 'any',

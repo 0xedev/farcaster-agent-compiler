@@ -2,7 +2,7 @@ import { SourceFile, Node } from 'ts-morph';
 import { AgentAction } from '../types';
 import * as fs from 'fs';
 import * as path from 'path';
-import { inferIntent, classifySafety, deriveAgentSafe } from './intent-classifier';
+import { inferIntent, classifySafety, deriveAgentSafe, inferActionAuth } from './intent-classifier';
 
 /** viem/wagmi chain variable names → EIP-155 chain IDs */
 const KNOWN_CHAINS: Record<string, number> = {
@@ -60,6 +60,7 @@ export class ContractParser {
           isReadOnly,
           safety,
           agentSafe: deriveAgentSafe(safety),
+          requiredAuth: inferActionAuth({ safety, isReadOnly, type: 'contract' }),
           inputs: this.mapAbiInputs(item.inputs ?? []),
           outputs: {
             type: this.mapAbiOutputs(item.outputs ?? []),
@@ -148,6 +149,7 @@ export class ContractParser {
         ...(contractAddress !== undefined ? { contractAddress } : {}),
         safety,
         agentSafe: deriveAgentSafe(safety),
+        requiredAuth: inferActionAuth({ safety, isReadOnly: false, type: 'contract' }),
         inputs: parameters,
         outputs: { type: 'any' },
       });
@@ -161,18 +163,31 @@ export class ContractParser {
   /**
    * Resolve relative imports that point to JSON ABI files.
    * Returns a map of imported identifier -> ABI array.
+   * Also resolves TypeScript path aliases (e.g. @/abis/GameABI).
    */
   private buildAbiImportMap(sourceFile: SourceFile): Map<string, any[]> {
     const map = new Map<string, any[]>();
     const sourceDir = path.dirname(sourceFile.getFilePath());
+    const aliasMap = this.loadTsAliases();
 
     for (const importDecl of sourceFile.getImportDeclarations()) {
       const spec = importDecl.getModuleSpecifierValue();
-      if (!spec.startsWith('.')) continue;
+
+      // Resolve the specifier to a filesystem path
+      let resolvedSpec: string | null = null;
+      if (spec.startsWith('.')) {
+        resolvedSpec = path.resolve(sourceDir, spec);
+      } else {
+        // Try TS path aliases
+        const aliasResolved = this.resolveAlias(spec, aliasMap);
+        if (aliasResolved) resolvedSpec = aliasResolved;
+      }
+
+      if (!resolvedSpec) continue;
 
       const candidates = [
-        path.resolve(sourceDir, spec),
-        path.resolve(sourceDir, `${spec}.json`),
+        resolvedSpec,
+        `${resolvedSpec}.json`,
       ];
 
       for (const candidate of candidates) {
@@ -194,6 +209,64 @@ export class ContractParser {
     }
 
     return map;
+  }
+
+  /**
+   * Read tsconfig.json compilerOptions.paths and baseUrl.
+   * Returns a map of alias prefix → array of filesystem root paths.
+   * e.g. { "@/*": ["/project/src/*"] }
+   */
+  private loadTsAliases(): Map<string, string[]> {
+    const aliases = new Map<string, string[]>();
+    const tsconfigPath = path.join(this.projectPath, 'tsconfig.json');
+    if (!fs.existsSync(tsconfigPath)) return aliases;
+
+    try {
+      // Strip JSON comments before parsing (tsconfig allows them)
+      const raw = fs.readFileSync(tsconfigPath, 'utf8')
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '');
+      const tsconfig = JSON.parse(raw);
+      const opts = tsconfig.compilerOptions ?? {};
+      const baseUrl = opts.baseUrl
+        ? path.resolve(this.projectPath, opts.baseUrl)
+        : this.projectPath;
+
+      for (const [alias, targets] of Object.entries(opts.paths ?? {})) {
+        const resolved = (targets as string[]).map(t =>
+          path.resolve(baseUrl, t)
+        );
+        aliases.set(alias, resolved);
+      }
+    } catch { /* ignore malformed tsconfig */ }
+
+    return aliases;
+  }
+
+  /**
+   * Resolve a module specifier against tsconfig path aliases.
+   * e.g. "@/abis/GameABI" → "/project/src/abis/GameABI"
+   */
+  private resolveAlias(spec: string, aliases: Map<string, string[]>): string | null {
+    for (const [pattern, targets] of aliases) {
+      if (pattern.endsWith('/*')) {
+        const prefix = pattern.slice(0, -2);   // "@/"
+        if (!spec.startsWith(prefix)) continue;
+        const rest = spec.slice(prefix.length); // "abis/GameABI"
+        for (const target of targets) {
+          const resolvedTarget = target.endsWith('/*')
+            ? path.join(target.slice(0, -2), rest)
+            : path.join(target, rest);
+          if (fs.existsSync(resolvedTarget) || fs.existsSync(`${resolvedTarget}.json`)) {
+            return resolvedTarget;
+          }
+        }
+      } else if (spec === pattern) {
+        // Exact match
+        return targets[0] ?? null;
+      }
+    }
+    return null;
   }
 
   private mapAbiInputs(inputs: any[]): Record<string, any> {
