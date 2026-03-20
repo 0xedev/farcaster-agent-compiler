@@ -1,105 +1,264 @@
-import { Project, SourceFile, JSDoc, JSDocTag, Type, Symbol } from 'ts-morph';
+import { Project, SourceFile, JSDoc, Node, Type } from 'ts-morph';
 import { AgentAction } from '../types';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ContractParser } from './contract-parser';
+import { ZodExtractor } from './zod-extractor';
+
+const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']);
 
 export class TSParser {
   private project: Project;
   private contractParser: ContractParser;
+  private zodExtractor: ZodExtractor;
 
   constructor(private projectPath: string) {
     this.project = new Project({
-      compilerOptions: {
-        allowJs: true,
-        checkJs: false,
-      },
+      compilerOptions: { allowJs: true, checkJs: false },
     });
     this.contractParser = new ContractParser(projectPath);
+    this.zodExtractor = new ZodExtractor();
   }
 
   async parseFile(filePath: string): Promise<AgentAction[]> {
+    const relativePath = path.relative(this.projectPath, filePath).replace(/\\/g, '/');
+
+    // 1. farcaster.json — extract app metadata, no actions
+    if (relativePath.endsWith('farcaster.json')) {
+      try {
+        const content = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        if (content.frame) {
+          (this as any)._appMetadata = {
+            name: content.frame.name,
+            description: content.frame.buttonTitle || `Farcaster App: ${content.frame.name}`,
+          };
+        }
+      } catch { /* ignore */ }
+      return [];
+    }
+
+    // 2. ABI JSON — delegate entirely to contract parser
+    if (filePath.endsWith('.json')) {
+      return this.contractParser.parseAbiFile(filePath);
+    }
+
+    // 3. TypeScript / TSX
     const sourceFile = this.project.addSourceFileAtPath(filePath);
     const actions: AgentAction[] = [];
 
-    // 1. Check for annotated functions
-    const functions = sourceFile.getExportedDeclarations();
-    for (const [name, declarations] of functions) {
+    // 3a. @agent-action JSDoc annotations (highest priority, any file)
+    const exported = sourceFile.getExportedDeclarations();
+    for (const [name, declarations] of exported) {
       for (const declaration of declarations) {
-        if ('getJsDocs' in declaration) {
-          const jsDocs = (declaration as any).getJsDocs() as JSDoc[];
-          for (const jsDoc of jsDocs) {
-            if (jsDoc.getTags().some(tag => tag.getTagName() === 'agent-action')) {
-              actions.push(this.parseFunction(name, declaration as any, jsDoc, filePath));
-            }
+        if (!('getJsDocs' in declaration)) continue;
+        const jsDocs = (declaration as any).getJsDocs() as JSDoc[];
+        for (const jsDoc of jsDocs) {
+          if (jsDoc.getTags().some(tag => tag.getTagName() === 'agent-action')) {
+            actions.push(this.parseAnnotatedFunction(name, declaration as any, jsDoc, filePath, relativePath));
           }
         }
       }
     }
 
-    // 2. Check if it's an API route (based on path)
-    const relativePath = path.relative(this.projectPath, filePath);
-    if (relativePath.includes('api/') && actions.length === 0) {
-      // Basic API route detection (infer name from path)
-      const actionName = path.basename(filePath, path.extname(filePath));
-      actions.push({
-        name: actionName,
-        description: `API endpoint at ${relativePath}`,
-        type: 'api',
-        location: `/${relativePath.replace(/\\/g, '/').replace(/\.[^/.]+$/, '').replace(/^pages\/api\//, 'api/')}`,
-        method: 'POST', // Default to POST for actions
-        parameters: { properties: {} },
-        returns: { type: 'any' }
-      });
-    }
+    // 3b. App Router route handlers: app/api/**/route.(ts|tsx|js|jsx)
+    const isAppRouterRoute = /app\/api\/.+\/route\.(ts|tsx|js|jsx)$/.test(relativePath);
+    if (isAppRouterRoute) {
+      const zodSchemas = this.zodExtractor.extractSchemas(sourceFile);
+      const zodShape = this.zodExtractor.findUsedSchema(sourceFile, zodSchemas);
+      const parameters = { properties: zodShape ?? {} };
+      const routeName = this.routeNameFromPath(relativePath);
+      const location = this.routeLocationFromPath(relativePath);
 
-    // 3. Extract metadata from farcaster.json if it's the manifest
-    if (relativePath.endsWith('farcaster.json')) {
-      const content = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-      if (content.frame) {
-        // We can store this metadata somewhere or just use it to populate the manifest
-        (this as any)._appMetadata = {
-          name: content.frame.name,
-          description: content.frame.buttonTitle || `Farcaster App: ${content.frame.name}`
-        };
+      // export async function POST(request: Request) { ... }
+      for (const func of sourceFile.getFunctions()) {
+        if (!func.isExported()) continue;
+        const methodName = func.getName();
+        if (!methodName || !HTTP_METHODS.has(methodName)) continue;
+        if (actions.some(a => a.name === `${routeName}_${methodName}`)) continue;
+
+        actions.push({
+          name: `${routeName}_${methodName}`,
+          description: `${methodName} ${location}`,
+          type: 'api',
+          location,
+          method: methodName,
+          parameters,
+          returns: { type: 'any' },
+        });
+      }
+
+      // export const POST = async (request: Request) => { ... }
+      for (const varDecl of sourceFile.getVariableDeclarations()) {
+        const methodName = varDecl.getName();
+        if (!HTTP_METHODS.has(methodName)) continue;
+        const stmt = varDecl.getVariableStatement();
+        if (!stmt?.isExported()) continue;
+        if (actions.some(a => a.name === `${routeName}_${methodName}`)) continue;
+
+        actions.push({
+          name: `${routeName}_${methodName}`,
+          description: `${methodName} ${location}`,
+          type: 'api',
+          location,
+          method: methodName,
+          parameters,
+          returns: { type: 'any' },
+        });
       }
     }
 
-    // 4. Contract detection
-    if (filePath.endsWith('.json') && !relativePath.endsWith('farcaster.json') && !relativePath.endsWith('package.json')) {
-      const contractActions = await this.contractParser.parseAbiFile(filePath);
-      actions.push(...contractActions);
-    } else if (filePath.endsWith('.ts') || filePath.endsWith('.tsx')) {
-      const hookActions = await this.contractParser.detectHooks(sourceFile);
-      actions.push(...hookActions);
+    // 3c. Pages Router API routes: pages/api/**
+    const isPagesRoute = relativePath.startsWith('pages/api/');
+    if (isPagesRoute && actions.length === 0) {
+      const zodSchemas = this.zodExtractor.extractSchemas(sourceFile);
+      const zodShape = this.zodExtractor.findUsedSchema(sourceFile, zodSchemas);
+      const method = this.detectHttpMethod(sourceFile);
+      const actionName = path.basename(filePath, path.extname(filePath));
+      const location = '/' + relativePath.replace(/\.[^/.]+$/, '').replace(/^pages\/api\//, 'api/');
+
+      actions.push({
+        name: actionName,
+        description: `API endpoint at /${relativePath}`,
+        type: 'api',
+        location,
+        method,
+        parameters: { properties: zodShape ?? {} },
+        returns: { type: 'any' },
+      });
+    }
+
+    // 3d. Generic non-Next.js API routes: api/**
+    const isGenericApiRoute =
+      relativePath.startsWith('api/') && !isAppRouterRoute && !isPagesRoute;
+    if (isGenericApiRoute && actions.length === 0) {
+      const zodSchemas = this.zodExtractor.extractSchemas(sourceFile);
+      const zodShape = this.zodExtractor.findUsedSchema(sourceFile, zodSchemas);
+      const method = this.detectHttpMethod(sourceFile);
+      const actionName = path.basename(filePath, path.extname(filePath));
+      const location = '/' + relativePath.replace(/\.[^/.]+$/, '');
+
+      actions.push({
+        name: actionName,
+        description: `API endpoint at /${relativePath}`,
+        type: 'api',
+        location,
+        method,
+        parameters: { properties: zodShape ?? {} },
+        returns: { type: 'any' },
+      });
+    }
+
+    // 3e. Server Actions: files with 'use server' directive
+    if (this.hasUseServerDirective(sourceFile)) {
+      // Named function declarations
+      for (const func of sourceFile.getFunctions()) {
+        if (!func.isExported()) continue;
+        const name = func.getName();
+        if (!name || actions.some(a => a.name === name)) continue;
+
+        const jsDocs = func.getJsDocs();
+        actions.push(this.parseAnnotatedFunction(name, func as any, jsDocs[0] ?? null, filePath, relativePath));
+      }
+
+      // Arrow functions / function expressions in exported variables
+      for (const varDecl of sourceFile.getVariableDeclarations()) {
+        const stmt = varDecl.getVariableStatement();
+        if (!stmt?.isExported()) continue;
+        const name = varDecl.getName();
+        if (actions.some(a => a.name === name)) continue;
+
+        const init = varDecl.getInitializer();
+        if (!init || (!Node.isArrowFunction(init) && !Node.isFunctionExpression(init))) continue;
+
+        actions.push({
+          name,
+          description: `Server Action: ${name}`,
+          type: 'function',
+          location: `./${relativePath}`,
+          parameters: { properties: this.extractFunctionParams(init as any) },
+          returns: { type: 'any' },
+        });
+      }
+    }
+
+    // 3f. Wagmi contract hooks (detectHooks is additive — never overrides annotated actions)
+    const hookActions = await this.contractParser.detectHooks(sourceFile);
+    for (const hook of hookActions) {
+      if (!actions.some(a => a.name === hook.name)) {
+        actions.push(hook);
+      }
     }
 
     return actions;
   }
 
-  public getAppMetadata(): { name?: string, description?: string } | undefined {
+  public getAppMetadata(): { name?: string; description?: string } | undefined {
     return (this as any)._appMetadata;
   }
 
-  private parseFunction(name: string, declaration: any, jsDoc: JSDoc, filePath: string): AgentAction {
-    const description = jsDoc.getDescription().trim() || 
-                        jsDoc.getTags().find(t => t.getTagName() === 'description')?.getComment()?.toString().trim() || 
-                        `Function ${name}`;
+  // ─── Helpers ─────────────────────────────────────────────────────────────
+
+  private hasUseServerDirective(sourceFile: SourceFile): boolean {
+    const text = sourceFile.getFullText().trimStart();
+    return text.startsWith("'use server'") || text.startsWith('"use server"');
+  }
+
+  /** Detect the HTTP method a Pages-Router handler accepts from req.method checks. */
+  private detectHttpMethod(sourceFile: SourceFile): string {
+    const methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
+    // Prefer methods seen in inequality guards (req.method !== "POST" means POST is accepted)
+    const text = sourceFile.getFullText();
+    for (const m of methods) {
+      if (text.includes(`!== "${m}"`) || text.includes(`!== '${m}'`)) return m;
+    }
+    // Fall back to any method string literal present
+    for (const m of methods) {
+      if (text.includes(`"${m}"`) || text.includes(`'${m}'`)) return m;
+    }
+    return 'POST';
+  }
+
+  /** Derive a clean action name from an App Router route path. */
+  private routeNameFromPath(relativePath: string): string {
+    return relativePath
+      .replace(/^.*app\/api\//, '')
+      .replace(/\/route\.[^/]+$/, '')
+      .replace(/\[/g, '')
+      .replace(/\]/g, '')
+      .replace(/\//g, '_') || 'root';
+  }
+
+  /** Derive the URL path from an App Router route file path. */
+  private routeLocationFromPath(relativePath: string): string {
+    return '/' + relativePath
+      .replace(/^.*app\/api\//, 'api/')
+      .replace(/\/route\.[^/]+$/, '');
+  }
+
+  private parseAnnotatedFunction(
+    name: string,
+    declaration: any,
+    jsDoc: JSDoc | null,
+    filePath: string,
+    relativePath: string
+  ): AgentAction {
+    const description =
+      jsDoc?.getDescription().trim() ||
+      jsDoc?.getTags().find(t => t.getTagName() === 'description')?.getComment()?.toString().trim() ||
+      `Function ${name}`;
 
     const parameters: Record<string, any> = {};
-    
     if ('getParameters' in declaration) {
-      const params = declaration.getParameters();
-      for (const param of params) {
+      for (const param of declaration.getParameters()) {
         const paramName = param.getName();
-        const paramType = param.getType().getText();
-        const paramDoc = jsDoc.getTags()
+        const paramDoc = jsDoc
+          ?.getTags()
           .find(t => t.getTagName() === 'param' && (t as any).getName() === paramName);
-        
+
         parameters[paramName] = {
           type: this.mapType(param.getType()),
           description: paramDoc?.getComment()?.toString().trim() || '',
-          required: !param.isOptional()
+          required: !param.isOptional(),
         };
       }
     }
@@ -110,13 +269,27 @@ export class TSParser {
       name,
       description,
       type: 'function',
-      location: `./${path.relative(this.projectPath, filePath)}`,
+      location: `./${relativePath}`,
       parameters: { properties: parameters },
       returns: {
         type: returnType ? this.mapType(returnType) : 'any',
-        description: jsDoc.getTags().find(t => t.getTagName() === 'returns')?.getComment()?.toString().trim() || ''
-      }
+        description:
+          jsDoc?.getTags().find(t => t.getTagName() === 'returns')?.getComment()?.toString().trim() || '',
+      },
     };
+  }
+
+  /** Extract parameter info from an arrow function or function expression node. */
+  private extractFunctionParams(func: any): Record<string, any> {
+    const params: Record<string, any> = {};
+    if (!('getParameters' in func)) return params;
+    for (const param of func.getParameters()) {
+      params[param.getName()] = {
+        type: this.mapType(param.getType()),
+        required: !param.isOptional(),
+      };
+    }
+    return params;
   }
 
   private mapType(type: Type): string {

@@ -42,13 +42,15 @@ export class DiscoveryService {
 
     for (const file of allTsFiles) {
       if (relevantFiles.includes(file)) continue;
-      
+
       const content = fs.readFileSync(file, 'utf8');
       if (
-        content.includes('@agent-action') || 
-        content.includes('useWriteContract') || 
+        content.includes('@agent-action') ||
+        content.includes('useWriteContract') ||
         content.includes('useContractWrite') ||
-        content.includes('writeContract')
+        content.includes('writeContract') ||
+        content.includes("'use server'") ||
+        content.includes('"use server"')
       ) {
         relevantFiles.push(file);
       }

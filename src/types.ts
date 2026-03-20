@@ -5,11 +5,13 @@ export interface AgentAction {
   location: string;
   method?: string;
   abiFunction?: string;
+  isReadOnly?: boolean;
   parameters: {
     properties: Record<string, {
       type: string;
       description?: string;
       required?: boolean;
+      enum?: string[];
     }>;
   };
   returns: {
