@@ -1,6 +1,6 @@
 {
   "name": "@0xedev/agentjson",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Universal agent manifest compiler — generates agent.json for any web app so AI agents can discover and interact with it",
   "main": "dist/index.js",
   "bin": {
