@@ -1,5 +1,5 @@
 {
-  "name": "agentjson",
+  "name": "@0xedev/agentjson",
   "version": "3.1.0",
   "description": "Universal agent manifest compiler — generates agent.json for any web app so AI agents can discover and interact with it",
   "main": "dist/index.js",
@@ -20,7 +20,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/0xedev/farcaster-agent-compiler"
+    "url": "git+https://github.com/0xedev/farcaster-agent-compiler.git"
   },
   "keywords": [
     "agent",
