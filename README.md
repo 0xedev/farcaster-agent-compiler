@@ -8,10 +8,10 @@ Works with Next.js (App Router + Pages Router), Express, Hono, Fastify, and any 
 
 ```bash
 # Run once, no install
-npx agentjson
+npx agent-manifest
 
 # Or install globally
-npm install -g agentjson
+npm install -g agent-manifest
 ```
 
 ## Usage
