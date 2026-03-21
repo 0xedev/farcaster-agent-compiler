@@ -156,7 +156,7 @@ export class AuthDetector {
       if (deps['samlify'] || deps['passport-saml'])
         this.applySignal({ pattern: 'saml', type: 'saml', priority: 92 });
       if (deps['@clerk/nextjs'] || deps['@clerk/clerk-sdk-node'])
-        this.applySignal({ pattern: 'clerk', type: 'clerk', header: 'Authorization', scheme: 'Bearer', priority: 88 });
+        this.applySignal({ pattern: 'clerk', type: 'clerk', priority: 88 });
       if (deps['@privy-io/react-auth'])
         this.applySignal({ pattern: 'privy', type: 'privy', priority: 85 });
       if (deps['@dynamic-labs/sdk-react-core'])
@@ -207,15 +207,15 @@ export class AuthFlowInferrer {
     const result: Partial<AuthConfig> = {};
     for (const content of this.scannedContents) {
       if (!result.nonceUrl && (authType === 'siwe' || authType === 'farcaster-siwf')) {
-        const m = content.match(/['"`](\/api\/auth\/nonce[^'"`\s]*)['"` ]/);
+        const m = content.match(/['"`](\/api\/auth\/nonce[^'"`\s]*)['"`]/);
         if (m) result.nonceUrl = m[1];
       }
       if (!result.callbackUrl && authType === 'oauth2') {
-        const m = content.match(/['"`](\/api\/auth\/callback[^'"`\s]*)['"` ]/);
+        const m = content.match(/['"`](\/api\/auth\/callback[^'"`\s]*)['"`]/);
         if (m) result.callbackUrl = m[1];
       }
       if (!result.loginUrl) {
-        const m = content.match(/['"`](\/sign-in|\/login|\/auth\/login)['"` ]/);
+        const m = content.match(/['"`](\/sign-in|\/login|\/auth\/login)['"`]/);
         if (m) result.loginUrl = m[1];
       }
     }
