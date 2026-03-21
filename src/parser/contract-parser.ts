@@ -59,7 +59,7 @@ export class ContractParser {
           abiFunction: item.name,
           isReadOnly,
           safety,
-          agentSafe: deriveAgentSafe(safety),
+          agentSafe: deriveAgentSafe(safety, item.name),
           requiredAuth: inferActionAuth({ safety, isReadOnly, type: 'contract' }),
           parameters: { properties: this.mapAbiInputs(item.inputs ?? []) },
           returns: {
@@ -148,7 +148,7 @@ export class ContractParser {
         ...(chainId !== undefined ? { chainId } : {}),
         ...(contractAddress !== undefined ? { contractAddress } : {}),
         safety,
-        agentSafe: deriveAgentSafe(safety),
+        agentSafe: deriveAgentSafe(safety, functionName),
         requiredAuth: inferActionAuth({ safety, isReadOnly: false, type: 'contract' }),
         parameters: { properties: parameters },
         returns: { type: 'any' },

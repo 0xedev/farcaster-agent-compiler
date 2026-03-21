@@ -43,6 +43,7 @@ program
   )
   .option('--auth-header <header>', 'auth header name (default: Authorization)')
   .option('--auth-docs <url>', 'URL where agents can obtain credentials')
+  .option('--base-url <url>', 'canonical base URL for the app (e.g. https://myapp.com)')
   .action(async (options) => {
     const projectPath = path.resolve(options.path);
     const outputPath  = path.resolve(options.output);
@@ -158,15 +159,21 @@ program
       appMetadata,
       tsParser.getCapabilities(),
       auth,
-      undefined,
-      Object.keys(dataModel).length > 0 ? dataModel : undefined
+      '1.0.0',
+      {
+        baseUrl: options.baseUrl ?? appMetadata.url,
+        dataModel,
+      }
     );
 
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     fs.writeFileSync(outputPath, JSON.stringify(manifest, null, 2));
 
+    const uiCount = Array.from(uniqueActions.values()).filter(a => a.type === 'ui').length;
+    const modelCount = Object.keys(dataModel).length;
     console.log(`✅ agent.json generated at: ${outputPath}`);
-    console.log(`   ${uniqueActions.size} actions · ${manifest.capabilities.length} capabilities · auth: ${auth.type}`);
+    console.log(`   ${uniqueActions.size} actions${uiCount ? ` · ${uiCount} ui-interactions` : ''} · ${manifest.capabilities.length} capabilities · auth: ${auth.type}`);
+    if (modelCount > 0) console.log(`   dataModel: ${modelCount} models`);
   });
 
 // ─── validate ────────────────────────────────────────────────────────────────
@@ -204,8 +211,12 @@ program
 // ─── Structural validator ────────────────────────────────────────────────────
 
 const SAFETY_LEVELS  = new Set(['read', 'write', 'financial', 'destructive', 'confidential']);
-const ACTION_TYPES   = new Set(['api', 'contract', 'function', 'socket']);
-const AUTH_TYPES     = new Set(['none', 'bearer', 'api-key', 'oauth2', 'basic', 'farcaster-frame', 'cookie']);
+const ACTION_TYPES   = new Set(['api', 'contract', 'function', 'socket', 'ui']);
+const AUTH_TYPES     = new Set([
+  'none', 'bearer', 'api-key', 'oauth2', 'basic', 'cookie',
+  'siwe', 'farcaster-siwf', 'farcaster-frame',
+  'clerk', 'privy', 'dynamic', 'magic', 'passkey', 'saml', 'supabase',
+]);
 const INTENT_RE      = /^[a-z][a-z0-9]*\.[a-z][a-z0-9]*$/;
 
 function validateManifest(m: any): string[] {
@@ -231,13 +242,17 @@ function validateManifest(m: any): string[] {
       else if (!INTENT_RE.test(action.intent))
         errors.push(`${prefix}: \`intent\` must match domain.verb format`);
       if (!ACTION_TYPES.has(action.type))
-        errors.push(`${prefix}: \`type\` must be one of api|contract|function`);
+        errors.push(`${prefix}: \`type\` must be one of api|contract|function|socket|ui`);
       if (!SAFETY_LEVELS.has(action.safety))
         errors.push(`${prefix}: \`safety\` must be one of read|write|financial|destructive|confidential`);
       if (typeof action.agentSafe !== 'boolean')
         errors.push(`${prefix}: \`agentSafe\` must be a boolean`);
       if (!action.requiredAuth)
         errors.push(`${prefix}: \`requiredAuth\` is missing`);
+      if (!action.parameters || typeof action.parameters.properties !== 'object')
+        errors.push(`${prefix}: \`parameters.properties\` must be an object`);
+      if (!action.returns || typeof action.returns.type !== 'string')
+        errors.push(`${prefix}: \`returns.type\` must be a string`);
     });
   }
 

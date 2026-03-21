@@ -5,8 +5,12 @@
  */
 
 const SAFETY_LEVELS  = new Set(['read', 'write', 'financial', 'destructive', 'confidential']);
-const ACTION_TYPES   = new Set(['api', 'contract', 'function']);
-const AUTH_TYPES     = new Set(['none', 'bearer', 'api-key', 'oauth2', 'basic', 'farcaster-frame', 'cookie']);
+const ACTION_TYPES   = new Set(['api', 'contract', 'function', 'socket', 'ui']);
+const AUTH_TYPES     = new Set([
+  'none', 'bearer', 'api-key', 'oauth2', 'basic', 'cookie',
+  'siwe', 'farcaster-siwf', 'farcaster-frame',
+  'clerk', 'privy', 'dynamic', 'magic', 'passkey', 'saml', 'supabase',
+]);
 const INTENT_RE      = /^[a-z][a-z0-9]*\.[a-z][a-z0-9]*$/;
 
 function validateManifest(m: any): string[] {
@@ -32,10 +36,10 @@ function validateManifest(m: any): string[] {
       if (typeof action.agentSafe !== 'boolean') errors.push(`${prefix}: \`agentSafe\` must be boolean`);
       if (!action.requiredAuth || !['public','required','farcaster-signed'].includes(action.requiredAuth.required))
         errors.push(`${prefix}: invalid \`requiredAuth.required\``);
-      if (typeof action.inputs !== 'object' || Array.isArray(action.inputs))
-        errors.push(`${prefix}: \`inputs\` must be an object`);
-      if (!action.outputs || typeof action.outputs.type !== 'string')
-        errors.push(`${prefix}: \`outputs.type\` must be a string`);
+      if (!action.parameters || typeof action.parameters.properties !== 'object')
+        errors.push(`${prefix}: \`parameters.properties\` must be an object`);
+      if (!action.returns || typeof action.returns.type !== 'string')
+        errors.push(`${prefix}: \`returns.type\` must be a string`);
     });
   }
   return errors;
@@ -104,5 +108,27 @@ describe('validateManifest', () => {
   it('accumulates multiple errors', () => {
     const errors = validateManifest({ name: '', version: 'bad', auth: null, capabilities: null, actions: [] });
     expect(errors.length).toBeGreaterThan(2);
+  });
+
+  it('accepts siwe auth type', () => {
+    const m = { ...validManifest, auth: { type: 'siwe' } };
+    expect(validateManifest(m)).toHaveLength(0);
+  });
+
+  it('accepts type ui action', () => {
+    const uiAction = { ...validAction, type: 'ui' };
+    expect(validateManifest({ ...validManifest, actions: [uiAction] })).toHaveLength(0);
+  });
+
+  it('fails action missing parameters.properties', () => {
+    const bad = { ...validAction, parameters: undefined };
+    const errors = validateManifest({ ...validManifest, actions: [bad] });
+    expect(errors.some(e => e.includes('parameters.properties'))).toBe(true);
+  });
+
+  it('fails action missing returns.type', () => {
+    const bad = { ...validAction, returns: { description: 'x' } };
+    const errors = validateManifest({ ...validManifest, actions: [bad] });
+    expect(errors.some(e => e.includes('returns.type'))).toBe(true);
   });
 });

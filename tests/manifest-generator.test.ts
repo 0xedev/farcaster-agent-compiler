@@ -10,8 +10,8 @@ const makeAction = (overrides: Partial<AgentAction> = {}): AgentAction => ({
   safety: 'write',
   agentSafe: true,
   requiredAuth: { required: 'required' },
-  inputs: {},
-  outputs: { type: 'any' },
+  parameters: { properties: {} },
+  returns: { type: 'any' },
   ...overrides,
 });
 

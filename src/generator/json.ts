@@ -7,14 +7,18 @@ export class ManifestGenerator {
     capabilities: string[] = [],
     auth: AuthConfig = { type: 'none' },
     version = '1.0.0',
-    dataModel?: Record<string, DataModelEntry>
+    options: {
+      baseUrl?: string;
+      dataModel?: Record<string, DataModelEntry>;
+    } = {}
   ): AgentManifest {
     return {
       name:        metadata.name        ?? 'Web App',
       description: metadata.description ?? 'Auto-generated agent manifest',
       version,
-      ...(metadata.author && { author: metadata.author }),
-      ...(metadata.url    && { url:    metadata.url }),
+      ...(metadata.author    && { author:   metadata.author }),
+      ...(metadata.url       && { url:      metadata.url }),
+      ...(options.baseUrl    && { baseUrl:  options.baseUrl }),
       auth,
       metadata: {
         ...(metadata.iconUrl               && { iconUrl:               metadata.iconUrl }),
@@ -25,7 +29,7 @@ export class ManifestGenerator {
       },
       capabilities,
       actions,
-      ...(dataModel && { dataModel }),
+      ...(options.dataModel && Object.keys(options.dataModel).length > 0 && { dataModel: options.dataModel }),
     };
   }
 }
