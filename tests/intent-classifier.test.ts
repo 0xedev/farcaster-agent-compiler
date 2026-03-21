@@ -165,6 +165,9 @@ describe('inferIntent — governance priority', () => {
   it('submitVote → governance.vote', () => {
     expect(inferIntent('submitVote')).toBe('governance.vote');
   });
+  it('bare cast → social.cast', () => {
+    expect(inferIntent('cast')).toBe('social.cast');
+  });
 });
 
 describe('classifySafety — function type', () => {
@@ -198,5 +201,9 @@ describe('inferActionAuth — no-auth app', () => {
   it('confidential actions on no-auth app still → required', () => {
     expect(inferActionAuth({ safety: 'confidential', type: 'api', appAuthType: 'none' }))
       .toEqual({ required: 'required', scope: 'pii:write' });
+  });
+  it('destructive actions on no-auth app still → required', () => {
+    expect(inferActionAuth({ safety: 'destructive', type: 'api', appAuthType: 'none' }))
+      .toEqual({ required: 'required' });
   });
 });
