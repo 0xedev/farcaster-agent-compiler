@@ -153,8 +153,8 @@ class TSParser {
                     safety,
                     agentSafe: (0, intent_classifier_1.deriveAgentSafe)(safety),
                     requiredAuth: this.actionAuth(safety, methodName),
-                    inputs: zodInputs,
-                    outputs: { type: 'any' },
+                    parameters: { properties: zodInputs },
+                    returns: { type: 'any' },
                 });
             }
             // export const POST = async (request: Request) => { ... }
@@ -179,8 +179,8 @@ class TSParser {
                     safety,
                     agentSafe: (0, intent_classifier_1.deriveAgentSafe)(safety),
                     requiredAuth: this.actionAuth(safety, methodName),
-                    inputs: zodInputs,
-                    outputs: { type: 'any' },
+                    parameters: { properties: zodInputs },
+                    returns: { type: 'any' },
                 });
             }
         }
@@ -203,8 +203,8 @@ class TSParser {
                 safety,
                 agentSafe: (0, intent_classifier_1.deriveAgentSafe)(safety),
                 requiredAuth: this.actionAuth(safety, method),
-                inputs: zodShape ?? {},
-                outputs: { type: 'any' },
+                parameters: { properties: zodShape ?? {} },
+                returns: { type: 'any' },
             });
         }
         // 3d. Generic non-Next.js API routes: api/**
@@ -226,8 +226,8 @@ class TSParser {
                 safety,
                 agentSafe: (0, intent_classifier_1.deriveAgentSafe)(safety),
                 requiredAuth: this.actionAuth(safety, method),
-                inputs: zodShape ?? {},
-                outputs: { type: 'any' },
+                parameters: { properties: zodShape ?? {} },
+                returns: { type: 'any' },
             });
         }
         // 3e. Server Actions: files with 'use server' directive
@@ -263,8 +263,8 @@ class TSParser {
                     safety,
                     agentSafe: (0, intent_classifier_1.deriveAgentSafe)(safety),
                     requiredAuth: this.actionAuth(safety, undefined, undefined, 'function'),
-                    inputs: this.extractFunctionParams(init),
-                    outputs: { type: 'any' },
+                    parameters: { properties: this.extractFunctionParams(init) },
+                    returns: { type: 'any' },
                 });
             }
         }
@@ -357,14 +357,14 @@ class TSParser {
             ?.getComment()
             ?.toString()
             .match(/safety=(read|write|financial|destructive)/)?.[1];
-        const inputs = {};
+        const properties = {};
         if ('getParameters' in declaration) {
             for (const param of declaration.getParameters()) {
                 const paramName = param.getName();
                 const paramDoc = jsDoc
                     ?.getTags()
                     .find(t => t.getTagName() === 'param' && t.getName() === paramName);
-                inputs[paramName] = {
+                properties[paramName] = {
                     type: this.mapType(param.getType()),
                     description: paramDoc?.getComment()?.toString().trim() || '',
                     required: !param.isOptional(),
@@ -382,8 +382,8 @@ class TSParser {
             safety,
             agentSafe: (0, intent_classifier_1.deriveAgentSafe)(safety),
             requiredAuth: this.actionAuth(safety, undefined, undefined, 'function'),
-            inputs,
-            outputs: {
+            parameters: { properties },
+            returns: {
                 type: returnType ? this.mapType(returnType) : 'any',
                 description: jsDoc?.getTags().find(t => t.getTagName() === 'returns')?.getComment()?.toString().trim() || '',
             },

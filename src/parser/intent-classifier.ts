@@ -48,17 +48,17 @@ const INTENT_RULES: IntentRule[] = [
   { pattern: /\b(buyNFT|purchaseNFT)/i, intent: 'nft.buy' },
   { pattern: /\b(burnNFT|burn)/i, intent: 'nft.burn' },
 
+  // Governance
+  { pattern: /\b(vote|castVote|submitVote)/i, intent: 'governance.vote' },
+  { pattern: /\b(propose|createProposal|submitProposal)/i, intent: 'governance.propose' },
+  { pattern: /\b(delegate|undelegate)/i, intent: 'governance.delegate' },
+
   // Social (Farcaster-native)
   { pattern: /\b(cast|compose(?:Cast)?|post(?:Cast)?)/i, intent: 'social.cast' },
   { pattern: /\b(follow|unfollow|subscribe)/i, intent: 'social.follow' },
   { pattern: /\b(like|react|upvote|downvote)/i, intent: 'social.react' },
   { pattern: /\b(comment|reply)/i, intent: 'social.reply' },
   { pattern: /\b(share|recast|repost)/i, intent: 'social.share' },
-
-  // Governance
-  { pattern: /\b(vote|castVote|submitVote)/i, intent: 'governance.vote' },
-  { pattern: /\b(propose|createProposal|submitProposal)/i, intent: 'governance.propose' },
-  { pattern: /\b(delegate|undelegate)/i, intent: 'governance.delegate' },
 
   // Auth
   { pattern: /\b(login|logout|signIn|signOut|connect|disconnect)/i, intent: 'auth.session' },
@@ -118,7 +118,7 @@ const CONFIDENTIAL_NOUNS = /(password|credential|privateKey|secretKey|biometric|
 export function classifySafety(opts: {
   name: string;
   httpMethod?: string;
-  isReadOnly?: boolean;   // ABI view/pure
+  isReadOnly?: boolean;
   type: 'api' | 'contract' | 'function' | 'socket';
 }): SafetyLevel {
   const { name, httpMethod, isReadOnly, type } = opts;
@@ -130,10 +130,20 @@ export function classifySafety(opts: {
     return 'write';
   }
 
+  // Financial and confidential nouns take priority for all types
   if (FINANCIAL_VERBS.test(name)) return 'financial';
   if (CONFIDENTIAL_NOUNS.test(name)) return 'confidential';
+
+  if (type === 'function') {
+    if (DESTRUCTIVE_VERBS.test(name)) return 'destructive';
+    if (/\b(login|logout|signIn|signOut|register|signup|createAccount)/i.test(name)) return 'confidential';
+    if (/\b(compose|follow|unfollow|like|react|vote|cast(?!VoteWeight)|reply|share|recast|propose|createProposal|joinGame|makeMove)/i.test(name)) return 'write';
+    return 'read';
+  }
+
   if (httpMethod === 'GET') return 'read';
   if (DESTRUCTIVE_VERBS.test(name)) return 'destructive';
+  if (isReadOnly) return 'read';
   return 'write';
 }
 
@@ -187,13 +197,18 @@ export function inferActionAuth(opts: {
     };
   }
 
-  // Destructive → required, no special scope
+  // Destructive → always required regardless of app auth
   if (safety === 'destructive') {
     return { required: 'required' };
   }
 
   // Read-only GET on a public (no-auth) app → public
   if (httpMethod === 'GET' && safety === 'read' && (appAuthType === 'none' || !appAuthType)) {
+    return { required: 'public' };
+  }
+
+  // No-auth app → all remaining actions are public
+  if (appAuthType === 'none' || !appAuthType) {
     return { required: 'public' };
   }
 

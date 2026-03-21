@@ -66,11 +66,13 @@ export interface AgentAction {
   safety: SafetyLevel;
   /** True when the action can be executed autonomously without human confirmation */
   agentSafe: boolean;
-  inputs: Record<string, ParameterProperty>;
-  outputs: {
-    type: string;
-    description?: string;
-  };
+  parameters: {
+  properties: Record<string, ParameterProperty>;
+};
+returns: {
+  type: string;
+  description?: string;
+};
 }
 
 export interface AppMetadata {

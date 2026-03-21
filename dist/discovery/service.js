@@ -39,6 +39,7 @@ const path = __importStar(require("path"));
 const crypto = __importStar(require("crypto"));
 const tinyglobby_1 = require("tinyglobby");
 const express_parser_1 = require("../parser/express-parser");
+const socketio_parser_1 = require("../parser/socketio-parser");
 /** SHA-1 of a file's content — used for change detection caching. */
 function fileHash(filePath) {
     try {
@@ -146,7 +147,8 @@ class DiscoveryService {
                 content.includes('writeContract') ||
                 content.includes("'use server'") ||
                 content.includes('"use server"') ||
-                (0, express_parser_1.looksLikeRouteFile)(content);
+                (0, express_parser_1.looksLikeRouteFile)(content) ||
+                (0, socketio_parser_1.looksLikeSocketIOFile)(content);
             this.cache[file] = { hash, relevant };
             this.cacheModified = true;
             if (relevant)

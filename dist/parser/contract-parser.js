@@ -95,8 +95,8 @@ class ContractParser {
                     safety,
                     agentSafe: (0, intent_classifier_1.deriveAgentSafe)(safety),
                     requiredAuth: (0, intent_classifier_1.inferActionAuth)({ safety, isReadOnly, type: 'contract' }),
-                    inputs: this.mapAbiInputs(item.inputs ?? []),
-                    outputs: {
+                    parameters: { properties: this.mapAbiInputs(item.inputs ?? []) },
+                    returns: {
                         type: this.mapAbiOutputs(item.outputs ?? []),
                         description: '',
                     },
@@ -174,8 +174,8 @@ class ContractParser {
                 safety,
                 agentSafe: (0, intent_classifier_1.deriveAgentSafe)(safety),
                 requiredAuth: (0, intent_classifier_1.inferActionAuth)({ safety, isReadOnly: false, type: 'contract' }),
-                inputs: parameters,
-                outputs: { type: 'any' },
+                parameters: { properties: parameters },
+                returns: { type: 'any' },
             });
         });
         return actions;
