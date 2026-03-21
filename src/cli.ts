@@ -23,7 +23,7 @@ import {
   OPENAPI_PATTERNS,
   PRISMA_PATTERNS,
 } from './index';
-import { AgentAction, AgentManifest, AuthConfig, AuthType } from './types';
+import { AgentAction, AgentManifest, AuthConfig, AuthType, DataModelEntry } from './types';
 
 const program = new Command();
 
@@ -65,6 +65,7 @@ program
     const openApiParser = new OpenAPIParser();
     const prismaParser  = new PrismaParser();
     const actions: AgentAction[] = [];
+    const dataModel: Record<string, DataModelEntry> = {};
 
     // Determine which files are OpenAPI / Prisma by extension/name
     const openApiExts  = new Set(['.json', '.yaml', '.yml']);
@@ -90,7 +91,8 @@ program
       // ── Prisma schema ─────────────────────────────────────────────────────
       if (ext === prismaExt || base === 'schema.prisma') {
         try {
-          actions.push(...prismaParser.parseFile(file));
+          const prismaResult = prismaParser.parseFile(file);
+          Object.assign(dataModel, prismaResult.dataModel);
         } catch { /* ignore */ }
         continue;
       }
@@ -155,7 +157,9 @@ program
       Array.from(uniqueActions.values()),
       appMetadata,
       tsParser.getCapabilities(),
-      auth
+      auth,
+      undefined,
+      Object.keys(dataModel).length > 0 ? dataModel : undefined
     );
 
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });

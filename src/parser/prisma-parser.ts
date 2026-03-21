@@ -1,186 +1,57 @@
 import * as fs from 'fs';
-import { AgentAction } from '../types';
-import { deriveAgentSafe, inferActionAuth } from './intent-classifier';
+import { AgentAction, DataModelEntry } from '../types';
 
 /**
- * Reads a Prisma schema file and infers CRUD agent actions for every model.
+ * Reads a Prisma schema file and extracts the data model as a structured
+ * `dataModel` map. Each Prisma model becomes an entry with its writeable
+ * fields (auto-managed fields like @id, @default(now()), @updatedAt are excluded).
  *
- * For a model named `User` it emits:
- *   listUsers    → data.read    (GET-like)
- *   getUser      → data.read    (GET-like, by id)
- *   createUser   → data.create  (POST-like)
- *   updateUser   → data.update  (PATCH-like)
- *   deleteUser   → data.delete  (DELETE-like)
- *
- * Fields declared on the model are mapped to action inputs where relevant.
+ * Returns `{ actions: [], dataModel }` — no CRUD actions are generated.
+ * Prisma models are data schema, not API endpoints.
  */
 export class PrismaParser {
-  parseFile(filePath: string): AgentAction[] {
+  parseFile(filePath: string): { actions: AgentAction[]; dataModel: Record<string, DataModelEntry> } {
     const content = fs.readFileSync(filePath, 'utf8');
-    const models = this.extractModels(content);
-    const actions: AgentAction[] = [];
+    const dataModel: Record<string, DataModelEntry> = {};
 
-    for (const model of models) {
-      const name  = model.name;
-      const lower = name.charAt(0).toLowerCase() + name.slice(1);
-      const location = filePath;
+    const modelRegex = /^model\s+(\w+)\s*\{([^}]+)\}/gm;
+    let match: RegExpExecArray | null;
+    while ((match = modelRegex.exec(content)) !== null) {
+      const modelName = match[1];
+      const body = match[2];
+      const fields: Record<string, { type: string; required?: boolean; description?: string }> = {};
 
-      // Writeable fields (non-id, non-auto) used as create/update inputs
-      const writeableFields = model.fields.filter(
-        f => !f.isId && !f.isAuto && !f.isList,
-      );
+      for (const line of body.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('@@')) continue;
+        const fieldMatch = /^(\w+)\s+(\w+)(\[\])?([\?])?(.*)?$/.exec(trimmed);
+        if (!fieldMatch) continue;
+        const [, fieldName, fieldType, isList, isOptional, attrs] = fieldMatch;
+        // Skip auto-managed fields
+        if (attrs?.includes('@id') || attrs?.includes('@default(now())') || attrs?.includes('@updatedAt')) continue;
 
-      const idField = model.fields.find(f => f.isId) ?? { name: 'id', type: 'String' };
-
-      const idInput: Record<string, any> = {
-        [idField.name]: { type: this.prismaTypeToJson(idField.type), required: true },
-      };
-
-      const writeInputs: Record<string, any> = {};
-      for (const f of writeableFields) {
-        writeInputs[f.name] = {
-          type: this.prismaTypeToJson(f.type),
-          required: !f.isOptional,
+        fields[fieldName] = {
+          type: this.mapFieldType(fieldType, !!isList),
+          required: !isOptional,
         };
       }
 
-      // list
-      actions.push({
-        name: `list${name}s`,
-        description: `List all ${name} records`,
-        intent: 'data.read',
-        type: 'function',
-        location,
-        safety: 'read',
-        agentSafe: true,
-        requiredAuth: inferActionAuth({ safety: 'read', httpMethod: 'GET', type: 'function' }),
-        parameters: { properties: {} },
-        returns: { type: 'array', description: `Array of ${name}` },
-      });
-
-      // get
-      actions.push({
-        name: `get${name}`,
-        description: `Get a single ${name} by ${idField.name}`,
-        intent: 'data.read',
-        type: 'function',
-        location,
-        safety: 'read',
-        agentSafe: true,
-        requiredAuth: inferActionAuth({ safety: 'read', httpMethod: 'GET', type: 'function' }),
-        parameters: { properties: idInput },
-        returns: { type: 'object', description: name },
-      });
-
-      // create
-      actions.push({
-        name: `create${name}`,
-        description: `Create a new ${name} record`,
-        intent: 'data.create',
-        type: 'function',
-        location,
-        safety: 'write',
-        agentSafe: deriveAgentSafe('write', `create${name}`),
-        requiredAuth: inferActionAuth({ safety: 'write', type: 'function' }),
-        parameters: { properties: writeInputs },
-        returns: { type: 'object', description: `Created ${name}` },
-      });
-
-      // update
-      actions.push({
-        name: `update${name}`,
-        description: `Update an existing ${name} record`,
-        intent: 'data.update',
-        type: 'function',
-        location,
-        safety: 'write',
-        agentSafe: deriveAgentSafe('write'),
-        requiredAuth: inferActionAuth({ safety: 'write', type: 'function' }),
-        parameters: { properties: { ...idInput, ...writeInputs } },
-        returns: { type: 'object', description: `Updated ${name}` },
-      });
-
-      // delete
-      actions.push({
-        name: `delete${name}`,
-        description: `Delete a ${name} record`,
-        intent: 'data.delete',
-        type: 'function',
-        location,
-        safety: 'destructive',
-        agentSafe: false,
-        requiredAuth: inferActionAuth({ safety: 'destructive', type: 'function' }),
-        parameters: { properties: idInput },
-        returns: { type: 'object', description: `Deleted ${name}` },
-      });
-
-      void lower; // suppress unused-variable warning
+      dataModel[modelName] = {
+        description: `Prisma model: ${modelName}`,
+        fields,
+      };
     }
 
-    return actions;
+    return { actions: [], dataModel };
   }
 
-  // ─── Schema parsing helpers ───────────────────────────────────────────────
-
-  private extractModels(content: string): Array<{
-    name: string;
-    fields: Array<{ name: string; type: string; isId: boolean; isAuto: boolean; isOptional: boolean; isList: boolean }>;
-  }> {
-    const models = [];
-    // Match: model ModelName { ... }
-    const modelRe = /^model\s+(\w+)\s*\{([^}]+)\}/gm;
-    let modelMatch: RegExpExecArray | null;
-
-    while ((modelMatch = modelRe.exec(content)) !== null) {
-      const modelName = modelMatch[1];
-      const body = modelMatch[2];
-      const fields = this.parseFields(body);
-      models.push({ name: modelName, fields });
-    }
-
-    return models;
-  }
-
-  private parseFields(body: string): Array<{
-    name: string; type: string; isId: boolean; isAuto: boolean; isOptional: boolean; isList: boolean;
-  }> {
-    const fields = [];
-    const lines = body.split('\n');
-
-    for (const raw of lines) {
-      const line = raw.trim();
-      if (!line || line.startsWith('//') || line.startsWith('@@')) continue;
-
-      // field   Type   @attr @attr
-      const match = line.match(/^(\w+)\s+(\w+)(\[\])?(\?)?(.*)$/);
-      if (!match) continue;
-
-      const [, name, type, isList, isOptional, attrs] = match;
-      fields.push({
-        name,
-        type,
-        isList: !!isList,
-        isOptional: !!isOptional,
-        isId: attrs.includes('@id'),
-        isAuto: attrs.includes('@default(autoincrement())') || attrs.includes('@default(uuid())') || attrs.includes('@default(cuid())') || attrs.includes('@updatedAt'),
-      });
-    }
-
-    return fields;
-  }
-
-  private prismaTypeToJson(prismaType: string): string {
-    switch (prismaType) {
-      case 'String':   return 'string';
-      case 'Int':
-      case 'Float':
-      case 'Decimal':  return 'number';
-      case 'Boolean':  return 'boolean';
-      case 'DateTime': return 'string';
-      case 'Json':     return 'object';
-      case 'Bytes':    return 'string';
-      default:         return 'object'; // relations / enums
-    }
+  private mapFieldType(prismaType: string, isList: boolean): string {
+    if (isList) return 'array';
+    const map: Record<string, string> = {
+      String: 'string', Int: 'number', Float: 'number', Decimal: 'number',
+      Boolean: 'boolean', DateTime: 'string', Json: 'object', Bytes: 'string',
+    };
+    return map[prismaType] ?? 'object';
   }
 }
 

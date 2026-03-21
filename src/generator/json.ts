@@ -1,4 +1,4 @@
-import { AgentAction, AgentManifest, AppMetadata, AuthConfig } from '../types';
+import { AgentAction, AgentManifest, AppMetadata, AuthConfig, DataModelEntry } from '../types';
 
 export class ManifestGenerator {
   generate(
@@ -6,7 +6,8 @@ export class ManifestGenerator {
     metadata: AppMetadata = {},
     capabilities: string[] = [],
     auth: AuthConfig = { type: 'none' },
-    version = '1.0.0'
+    version = '1.0.0',
+    dataModel?: Record<string, DataModelEntry>
   ): AgentManifest {
     return {
       name:        metadata.name        ?? 'Web App',
@@ -24,6 +25,7 @@ export class ManifestGenerator {
       },
       capabilities,
       actions,
+      ...(dataModel && { dataModel }),
     };
   }
 }
