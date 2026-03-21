@@ -1,6 +1,22 @@
 export type SafetyLevel = 'read' | 'write' | 'financial' | 'destructive' | 'confidential';
 
-export type AuthType = 'none' | 'bearer' | 'api-key' | 'oauth2' | 'basic' | 'farcaster-frame' | 'cookie';
+export type AuthType =
+  | 'none'
+  | 'bearer'
+  | 'api-key'
+  | 'oauth2'
+  | 'basic'
+  | 'cookie'
+  | 'siwe'
+  | 'farcaster-siwf'
+  | 'farcaster-frame'
+  | 'clerk'
+  | 'privy'
+  | 'dynamic'
+  | 'magic'
+  | 'passkey'
+  | 'saml'
+  | 'supabase';
 
 export interface AuthConfig {
   /** How agents should authenticate with this app */
@@ -13,6 +29,11 @@ export interface AuthConfig {
   queryParam?: string;
   /** URL where agents/users can obtain credentials */
   docsUrl?: string;
+  loginUrl?: string;
+  nonceUrl?: string;
+  tokenUrl?: string;
+  callbackUrl?: string;
+  scopes?: string[];
 }
 
 export interface ParameterProperty {
@@ -47,13 +68,11 @@ export interface AgentAction {
   description: string;
   /** Standardized semantic intent, e.g. "game.play", "finance.transfer", "social.cast" */
   intent: string;
-  type: 'api' | 'contract' | 'function' | 'socket';
+  type: 'api' | 'contract' | 'function' | 'socket' | 'ui';
   location: string;
   method?: string;
   /** For socket type: the Socket.IO event name to emit */
   socketEvent?: string;
-  /** Auth requirement for this specific action (may differ from app-level auth) */
-  requiredAuth: ActionAuth;
   abiFunction?: string;
   isReadOnly?: boolean;
   chainId?: number;
@@ -66,11 +85,38 @@ export interface AgentAction {
   safety: SafetyLevel;
   /** True when the action can be executed autonomously without human confirmation */
   agentSafe: boolean;
-  inputs: Record<string, ParameterProperty>;
-  outputs: {
+  /** Auth requirement for this specific action (may differ from app-level auth) */
+  requiredAuth: ActionAuth;
+  // Renamed from inputs/outputs — per-property `required` is a non-standard
+  // extension to JSON Schema; document in README that strict consumers must
+  // transform required fields to a `required: string[]` array.
+  parameters: {
+    properties: Record<string, ParameterProperty>;
+  };
+  returns: {
     type: string;
     description?: string;
   };
+  // New routing/interaction fields
+  uiPath?: string;
+  callStrategy?:
+    | 'direct-api'
+    | 'server-action'
+    | 'form-submission'
+    | 'socket-emit'
+    | 'contract-write'
+    | 'ui-interaction';
+  selector?: string;
+  interaction?: 'click' | 'fill' | 'select' | 'toggle';
+}
+
+export interface DataModelEntry {
+  description?: string;
+  fields: Record<string, {
+    type: string;
+    required?: boolean;
+    description?: string;
+  }>;
 }
 
 export interface AppMetadata {
@@ -91,9 +137,10 @@ export interface AgentManifest {
   version: string;
   author?: string;
   url?: string;
-  /** How agents authenticate with this app */
+  baseUrl?: string;
   auth: AuthConfig;
   metadata: AppMetadata;
   capabilities: string[];
   actions: AgentAction[];
+  dataModel?: Record<string, DataModelEntry>;
 }
