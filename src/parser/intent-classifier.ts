@@ -48,17 +48,17 @@ const INTENT_RULES: IntentRule[] = [
   { pattern: /\b(buyNFT|purchaseNFT)/i, intent: 'nft.buy' },
   { pattern: /\b(burnNFT|burn)/i, intent: 'nft.burn' },
 
+  // Governance (must come BEFORE Social so castVote → governance.vote, not social.cast)
+  { pattern: /\b(vote|castVote|submitVote)/i, intent: 'governance.vote' },
+  { pattern: /\b(propose|createProposal|submitProposal)/i, intent: 'governance.propose' },
+  { pattern: /\b(delegate|undelegate)/i, intent: 'governance.delegate' },
+
   // Social (Farcaster-native)
-  { pattern: /\b(cast|compose(?:Cast)?|post(?:Cast)?)/i, intent: 'social.cast' },
+  { pattern: /\b(cast(?!Vote)|compose(?:Cast)?|post(?:Cast)?)/i, intent: 'social.cast' },
   { pattern: /\b(follow|unfollow|subscribe)/i, intent: 'social.follow' },
   { pattern: /\b(like|react|upvote|downvote)/i, intent: 'social.react' },
   { pattern: /\b(comment|reply)/i, intent: 'social.reply' },
   { pattern: /\b(share|recast|repost)/i, intent: 'social.share' },
-
-  // Governance
-  { pattern: /\b(vote|castVote|submitVote)/i, intent: 'governance.vote' },
-  { pattern: /\b(propose|createProposal|submitProposal)/i, intent: 'governance.propose' },
-  { pattern: /\b(delegate|undelegate)/i, intent: 'governance.delegate' },
 
   // Auth
   { pattern: /\b(login|logout|signIn|signOut|connect|disconnect)/i, intent: 'auth.session' },
@@ -101,7 +101,10 @@ const DESTRUCTIVE_VERBS  = /\b(delete|remove|destroy|burn|archive|purge|wipe|cle
  *           updateSsn, exportPrivateKey, getMedicalRecord.
  */
 // No \b — these nouns appear anywhere in camelCase (resetPassword, submitKyc, getSsn)
-const CONFIDENTIAL_NOUNS = /(password|credential|privateKey|secretKey|biometric|ssn|taxId|pii|kyc|medicalRecord|healthRecord|passport|driverLicense|creditCard|cvv|encryptedData|identityVerif)/i;
+const CONFIDENTIAL_NOUNS = /(password|credential|privateKey|secretKey|biometric|ssn|taxId|tax_id|pii|kyc|medical|health|passport|license|creditCard|cvv|encrypted|identity|dob|birthDate|address|phone|mobile|email)/i;
+
+/** Verbs that imply high-privilege administrative or sensitive state changes. */
+const SENSITIVE_WRITE_VERBS = /\b(admin|role|permission|password|owner|ban|block|lock|unlock|grant|revoke|delegate|sudo|root|secret)/i;
 
 /**
  * Classify the safety level of an action.
@@ -119,7 +122,7 @@ export function classifySafety(opts: {
   name: string;
   httpMethod?: string;
   isReadOnly?: boolean;   // ABI view/pure
-  type: 'api' | 'contract' | 'function' | 'socket';
+  type: 'api' | 'contract' | 'function' | 'socket' | 'ui';
 }): SafetyLevel {
   const { name, httpMethod, isReadOnly, type } = opts;
 
@@ -130,16 +133,35 @@ export function classifySafety(opts: {
     return 'write';
   }
 
+  // Financial and confidential always win regardless of type
   if (FINANCIAL_VERBS.test(name)) return 'financial';
   if (CONFIDENTIAL_NOUNS.test(name)) return 'confidential';
+
+  if (type === 'function' || type === 'ui') {
+    if (DESTRUCTIVE_VERBS.test(name)) return 'destructive';
+    // Auth functions are confidential (handle credentials)
+    if (/\b(login|logout|signIn|signOut|register|signup|createAccount)/i.test(name)) return 'confidential';
+    // Social/game → write
+    return 'write';
+  }
+
   if (httpMethod === 'GET') return 'read';
+  if (isReadOnly) return 'read';
   if (DESTRUCTIVE_VERBS.test(name)) return 'destructive';
   return 'write';
 }
 
-/** Derive agentSafe from safety level. Non-read/write levels require human confirmation. */
-export function deriveAgentSafe(safety: SafetyLevel): boolean {
-  return safety === 'read' || safety === 'write';
+/**
+ * Derive agentSafe from safety level.
+ * Only 'read' and non-sensitive 'write' actions are safe for autonomous execution.
+ */
+export function deriveAgentSafe(safety: SafetyLevel, name: string): boolean {
+  if (safety === 'read') return true;
+  if (safety === 'write') {
+    // Narrowing: check if the write action name contains high-privilege keywords
+    return !SENSITIVE_WRITE_VERBS.test(name);
+  }
+  return false;
 }
 
 /**
@@ -159,7 +181,7 @@ export function inferActionAuth(opts: {
   httpMethod?: string;
   isReadOnly?: boolean;
   appAuthType?: AuthType;
-  type: 'api' | 'contract' | 'function' | 'socket';
+  type: 'api' | 'contract' | 'function' | 'socket' | 'ui';
 }): ActionAuth {
   const { safety, httpMethod, isReadOnly, appAuthType, type } = opts;
 
@@ -192,8 +214,10 @@ export function inferActionAuth(opts: {
     return { required: 'required' };
   }
 
-  // Read-only GET on a public (no-auth) app → public
-  if (httpMethod === 'GET' && safety === 'read' && (appAuthType === 'none' || !appAuthType)) {
+  // No-auth app → read and write actions are public (non-contract only).
+  // Financial/confidential/destructive retain their required auth even on no-auth apps
+  // (those actions handle money or PII and should always require confirmation).
+  if (type !== 'contract' && (appAuthType === 'none' || !appAuthType) && (safety === 'read' || safety === 'write')) {
     return { required: 'public' };
   }
 

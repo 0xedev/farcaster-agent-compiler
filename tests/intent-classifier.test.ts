@@ -94,14 +94,14 @@ describe('classifySafety', () => {
 
 describe('deriveAgentSafe', () => {
   it('read and write are agent-safe', () => {
-    expect(deriveAgentSafe('read')).toBe(true);
-    expect(deriveAgentSafe('write')).toBe(true);
+    expect(deriveAgentSafe('read', 'getUser')).toBe(true);
+    expect(deriveAgentSafe('write', 'updateProfile')).toBe(true);
   });
 
   it('financial, destructive, and confidential are NOT agent-safe', () => {
-    expect(deriveAgentSafe('financial')).toBe(false);
-    expect(deriveAgentSafe('destructive')).toBe(false);
-    expect(deriveAgentSafe('confidential')).toBe(false);
+    expect(deriveAgentSafe('financial', 'transfer')).toBe(false);
+    expect(deriveAgentSafe('destructive', 'deleteAccount')).toBe(false);
+    expect(deriveAgentSafe('confidential', 'resetPassword')).toBe(false);
   });
 });
 
@@ -152,5 +152,51 @@ describe('inferActionAuth', () => {
   it('GET read on authenticated app → required', () => {
     const auth = inferActionAuth({ safety: 'read', httpMethod: 'GET', appAuthType: 'bearer', type: 'api' });
     expect(auth.required).toBe('required');
+  });
+});
+
+describe('inferIntent — governance priority', () => {
+  it('castVote → governance.vote not social.cast', () => {
+    expect(inferIntent('castVote')).toBe('governance.vote');
+  });
+  it('plain cast → social.cast (unchanged)', () => {
+    expect(inferIntent('composeCast')).toBe('social.cast');
+  });
+  it('submitVote → governance.vote', () => {
+    expect(inferIntent('submitVote')).toBe('governance.vote');
+  });
+});
+
+describe('classifySafety — function type', () => {
+  it('login → confidential', () => {
+    expect(classifySafety({ name: 'signIn', type: 'function' })).toBe('confidential');
+  });
+  it('dropPiece → write', () => {
+    expect(classifySafety({ name: 'dropPiece', type: 'function' })).toBe('write');
+  });
+  it('financial verb → financial', () => {
+    expect(classifySafety({ name: 'transfer', type: 'function' })).toBe('financial');
+  });
+  it('delete → destructive', () => {
+    expect(classifySafety({ name: 'deleteAccount', type: 'function' })).toBe('destructive');
+  });
+});
+
+describe('inferActionAuth — no-auth app', () => {
+  it('write actions on no-auth app → public', () => {
+    expect(inferActionAuth({ safety: 'write', type: 'api', appAuthType: 'none' }))
+      .toEqual({ required: 'public' });
+  });
+  it('read actions on no-auth app → public', () => {
+    expect(inferActionAuth({ safety: 'read', type: 'api', appAuthType: 'none' }))
+      .toEqual({ required: 'public' });
+  });
+  it('financial actions on no-auth app still → required (safety overrides)', () => {
+    expect(inferActionAuth({ safety: 'financial', type: 'api', appAuthType: 'none' }))
+      .toEqual({ required: 'required', scope: 'payments:write' });
+  });
+  it('confidential actions on no-auth app still → required', () => {
+    expect(inferActionAuth({ safety: 'confidential', type: 'api', appAuthType: 'none' }))
+      .toEqual({ required: 'required', scope: 'pii:write' });
   });
 });
