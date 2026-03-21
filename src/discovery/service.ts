@@ -4,6 +4,12 @@ import * as crypto from 'crypto';
 import { glob } from 'tinyglobby';
 import { looksLikeRouteFile } from '../parser/express-parser';
 import { looksLikeSocketIOFile } from '../parser/socketio-parser';
+import { looksLikeTRPCFile } from '../parser/trpc-parser';
+import { looksLikeSSEFile } from '../parser/sse-parser';
+import { looksLikeRemixRouteFile } from '../parser/remix-parser';
+import { looksLikeWebSocketFile } from '../parser/websocket-parser';
+import { OPENAPI_PATTERNS } from '../parser/openapi-parser';
+import { PRISMA_PATTERNS } from '../parser/prisma-parser';
 
 /** SHA-1 of a file's content — used for change detection caching. */
 function fileHash(filePath: string): string {
@@ -30,7 +36,6 @@ const ALWAYS_EXCLUDE = [
   '!**/out/**',
   '!**/build/**',
   '!**/.vercel/**',
-  // Never scan env files — they may contain secrets
   '!**/.env',
   '!**/.env.*',
   '!**/secrets/**',
@@ -61,7 +66,7 @@ export class DiscoveryService {
   async findRelevantFiles(): Promise<string[]> {
     const relevantFiles: string[] = [];
 
-    // 0. Farcaster manifest (app identity / metadata)
+    // 0. Farcaster manifest
     const manifests = await glob([
       '.well-known/farcaster.json',
       'public/.well-known/farcaster.json',
@@ -69,7 +74,7 @@ export class DiscoveryService {
     ], { cwd: this.projectPath, absolute: true });
     relevantFiles.push(...manifests);
 
-    // 0.5. ABI JSON files (smart contract definitions)
+    // 0.5. ABI JSON files
     const abis = await glob([
       '**/*ABI.json',
       '**/abi/*.json',
@@ -80,21 +85,40 @@ export class DiscoveryService {
     ], { cwd: this.projectPath, absolute: true });
     relevantFiles.push(...abis);
 
-    // 1. API routes — support monorepo layouts (apps/*/src/app/api, apps/*/pages/api, etc.)
+    // 0.6. OpenAPI / Swagger specs
+    const openApiFiles = await glob([
+      ...OPENAPI_PATTERNS,
+      ...ALWAYS_EXCLUDE,
+    ], { cwd: this.projectPath, absolute: true });
+    relevantFiles.push(...openApiFiles);
+
+    // 0.7. Prisma schema files
+    const prismaFiles = await glob([
+      ...PRISMA_PATTERNS,
+      ...ALWAYS_EXCLUDE,
+    ], { cwd: this.projectPath, absolute: true });
+    relevantFiles.push(...prismaFiles);
+
+    // 1. Next.js API routes
     const apiRoutes = await glob([
-      // Next.js App Router
       '**/app/api/**/*.{ts,js,tsx,jsx}',
-      // Next.js Pages Router
       '**/pages/api/**/*.{ts,js,tsx,jsx}',
-      // Generic api/ folder
       '**/api/**/*.{ts,js,tsx,jsx}',
       ...ALWAYS_EXCLUDE,
     ], { cwd: this.projectPath, absolute: true });
     relevantFiles.push(...apiRoutes);
 
-    // 2. Scan all TS/TSX files for signal keywords
+    // 2. Remix route files
+    const remixRoutes = await glob([
+      '**/app/routes/**/*.{ts,js,tsx,jsx}',
+      '**/routes/**/*.{ts,js,tsx,jsx}',
+      ...ALWAYS_EXCLUDE,
+    ], { cwd: this.projectPath, absolute: true });
+    relevantFiles.push(...remixRoutes);
+
+    // 3. Scan all TS/TSX/JS files for signal keywords
     const allTsFiles = await glob([
-      '**/*.{ts,tsx}',
+      '**/*.{ts,tsx,js,jsx}',
       ...ALWAYS_EXCLUDE,
     ], { cwd: this.projectPath, absolute: true });
 
@@ -104,13 +128,11 @@ export class DiscoveryService {
       const hash = fileHash(file);
       const cached = this.cache[file];
 
-      // Cache hit: file unchanged, reuse previous relevance decision
       if (cached && cached.hash === hash) {
         if (cached.relevant) relevantFiles.push(file);
         continue;
       }
 
-      // Cache miss: read and classify
       const content = fs.readFileSync(file, 'utf8');
       const relevant =
         content.includes('@agent-action') ||
@@ -120,7 +142,11 @@ export class DiscoveryService {
         content.includes("'use server'") ||
         content.includes('"use server"') ||
         looksLikeRouteFile(content) ||
-        looksLikeSocketIOFile(content);
+        looksLikeSocketIOFile(content) ||
+        looksLikeTRPCFile(content) ||
+        looksLikeSSEFile(content) ||
+        looksLikeRemixRouteFile(content) ||
+        looksLikeWebSocketFile(content);
 
       this.cache[file] = { hash, relevant };
       this.cacheModified = true;

@@ -7,9 +7,21 @@ import {
   TSParser,
   ExpressParser,
   SocketIOParser,
+  TRPCParser,
+  SSEParser,
+  RemixParser,
+  WebSocketParser,
+  OpenAPIParser,
+  PrismaParser,
   ManifestGenerator,
   looksLikeRouteFile,
   looksLikeSocketIOFile,
+  looksLikeTRPCFile,
+  looksLikeSSEFile,
+  looksLikeRemixRouteFile,
+  looksLikeWebSocketFile,
+  OPENAPI_PATTERNS,
+  PRISMA_PATTERNS,
 } from './index';
 import { AgentAction, AgentManifest, AuthConfig, AuthType } from './types';
 
@@ -42,27 +54,75 @@ program
 
     console.log(`🔍 Found ${files.length} relevant files.`);
 
-    const tsParser       = new TSParser(projectPath);
-    const expressParser  = new ExpressParser(tsParser.getProject());
-    const socketParser   = new SocketIOParser(tsParser.getProject());
+    const tsParser      = new TSParser(projectPath);
+    const sharedProject = tsParser.getProject();
+    const expressParser = new ExpressParser(sharedProject);
+    const socketParser  = new SocketIOParser(sharedProject);
+    const trpcParser    = new TRPCParser(sharedProject);
+    const sseParser     = new SSEParser(sharedProject);
+    const remixParser   = new RemixParser(sharedProject);
+    const wsParser      = new WebSocketParser(sharedProject);
+    const openApiParser = new OpenAPIParser();
+    const prismaParser  = new PrismaParser();
     const actions: AgentAction[] = [];
+
+    // Determine which files are OpenAPI / Prisma by extension/name
+    const openApiExts  = new Set(['.json', '.yaml', '.yml']);
+    const prismaExt    = '.prisma';
 
     for (const file of files) {
       console.log(`📄 Parsing: ${path.relative(projectPath, file)}`);
 
-      const fileActions = await tsParser.parseFile(file);
-      actions.push(...fileActions);
+      const ext  = path.extname(file).toLowerCase();
+      const base = path.basename(file).toLowerCase();
 
-      if (file.endsWith('.ts') || file.endsWith('.js')) {
+      // ── OpenAPI spec ──────────────────────────────────────────────────────
+      if (openApiExts.has(ext) && OPENAPI_PATTERNS.some(p => {
+        const pat = p.replace('**/', '').replace('*', '');
+        return base.includes(pat.split('.')[0]);
+      })) {
+        try {
+          actions.push(...openApiParser.parseFile(file, projectPath));
+        } catch { /* ignore */ }
+        continue;
+      }
+
+      // ── Prisma schema ─────────────────────────────────────────────────────
+      if (ext === prismaExt || base === 'schema.prisma') {
+        try {
+          actions.push(...prismaParser.parseFile(file));
+        } catch { /* ignore */ }
+        continue;
+      }
+
+      // ── TypeScript / JavaScript source files ──────────────────────────────
+      if (ext === '.ts' || ext === '.tsx' || ext === '.js' || ext === '.jsx') {
+        // Standard TS server-action / contract / annotation parsing
+        try {
+          const fileActions = await tsParser.parseFile(file);
+          actions.push(...fileActions);
+        } catch { /* ignore */ }
+
         try {
           const content = fs.readFileSync(file, 'utf8');
+
           if (looksLikeRouteFile(content)) {
-            const expressActions = await expressParser.parseFile(file, projectPath);
-            actions.push(...expressActions);
+            actions.push(...await expressParser.parseFile(file, projectPath));
           }
           if (looksLikeSocketIOFile(content)) {
-            const socketActions = await socketParser.parseFile(file, projectPath);
-            actions.push(...socketActions);
+            actions.push(...await socketParser.parseFile(file, projectPath));
+          }
+          if (looksLikeTRPCFile(content)) {
+            actions.push(...await trpcParser.parseFile(file, projectPath));
+          }
+          if (looksLikeSSEFile(content)) {
+            actions.push(...await sseParser.parseFile(file, projectPath));
+          }
+          if (looksLikeRemixRouteFile(content)) {
+            actions.push(...await remixParser.parseFile(file, projectPath));
+          }
+          if (looksLikeWebSocketFile(content)) {
+            actions.push(...await wsParser.parseFile(file, projectPath));
           }
         } catch { /* ignore */ }
       }
