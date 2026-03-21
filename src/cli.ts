@@ -133,7 +133,7 @@ program
     const uniqueActions = new Map<string, AgentAction>();
     for (const action of actions) {
       const existing = uniqueActions.get(action.name);
-      if (!existing || Object.keys(action.inputs).length > Object.keys(existing.inputs).length) {
+      if (!existing || Object.keys(action.parameters?.properties ?? {}).length > Object.keys(existing.parameters?.properties ?? {}).length) {
         uniqueActions.set(action.name, action);
       }
     }

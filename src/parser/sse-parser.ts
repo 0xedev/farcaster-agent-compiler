@@ -65,10 +65,10 @@ export class SSEParser {
         location: relativePath,
         method: 'GET',
         safety,
-        agentSafe: deriveAgentSafe(safety),
+        agentSafe: deriveAgentSafe(safety, name),
         requiredAuth: inferActionAuth({ safety, httpMethod: 'GET', type: 'api' }),
-        inputs: {},
-        outputs: { type: 'stream', description: 'Server-Sent Events stream' },
+        parameters: { properties: {} },
+        returns: { type: 'stream', description: 'Server-Sent Events stream' },
       });
     }
 

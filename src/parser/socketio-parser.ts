@@ -79,10 +79,10 @@ export class SocketIOParser {
         location: relativePath,
         socketEvent: eventName,
         safety,
-        agentSafe: deriveAgentSafe(safety),
+        agentSafe: deriveAgentSafe(safety, camelName),
         requiredAuth: inferActionAuth({ safety, type: 'socket' }),
-        inputs,
-        outputs: { type: 'object' },
+        parameters: { properties: inputs },
+        returns: { type: 'object' },
       } as any);
     });
 

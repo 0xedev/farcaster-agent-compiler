@@ -50,8 +50,8 @@ const validAction = {
   safety: 'financial',
   agentSafe: false,
   requiredAuth: { required: 'required' },
-  inputs: {},
-  outputs: { type: 'void' },
+  parameters: { properties: {} },
+  returns: { type: 'void' },
 };
 
 const validManifest = {

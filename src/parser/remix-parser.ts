@@ -48,10 +48,10 @@ export class RemixParser {
         location: routePath,
         method: httpMethod,
         safety,
-        agentSafe: deriveAgentSafe(safety),
+        agentSafe: deriveAgentSafe(safety, actionName),
         requiredAuth: inferActionAuth({ safety, httpMethod, type: 'api' }),
-        inputs: this.extractRouteParams(routePath),
-        outputs: { type: 'object' },
+        parameters: { properties: this.extractRouteParams(routePath) },
+        returns: { type: 'object' },
       });
     }
 

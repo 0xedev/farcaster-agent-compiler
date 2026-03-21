@@ -54,8 +54,8 @@ export class PrismaParser {
         safety: 'read',
         agentSafe: true,
         requiredAuth: inferActionAuth({ safety: 'read', httpMethod: 'GET', type: 'function' }),
-        inputs: {},
-        outputs: { type: 'array', description: `Array of ${name}` },
+        parameters: { properties: {} },
+        returns: { type: 'array', description: `Array of ${name}` },
       });
 
       // get
@@ -68,8 +68,8 @@ export class PrismaParser {
         safety: 'read',
         agentSafe: true,
         requiredAuth: inferActionAuth({ safety: 'read', httpMethod: 'GET', type: 'function' }),
-        inputs: idInput,
-        outputs: { type: 'object', description: name },
+        parameters: { properties: idInput },
+        returns: { type: 'object', description: name },
       });
 
       // create
@@ -80,10 +80,10 @@ export class PrismaParser {
         type: 'function',
         location,
         safety: 'write',
-        agentSafe: deriveAgentSafe('write'),
+        agentSafe: deriveAgentSafe('write', `create${name}`),
         requiredAuth: inferActionAuth({ safety: 'write', type: 'function' }),
-        inputs: writeInputs,
-        outputs: { type: 'object', description: `Created ${name}` },
+        parameters: { properties: writeInputs },
+        returns: { type: 'object', description: `Created ${name}` },
       });
 
       // update
@@ -96,8 +96,8 @@ export class PrismaParser {
         safety: 'write',
         agentSafe: deriveAgentSafe('write'),
         requiredAuth: inferActionAuth({ safety: 'write', type: 'function' }),
-        inputs: { ...idInput, ...writeInputs },
-        outputs: { type: 'object', description: `Updated ${name}` },
+        parameters: { properties: { ...idInput, ...writeInputs } },
+        returns: { type: 'object', description: `Updated ${name}` },
       });
 
       // delete
@@ -110,8 +110,8 @@ export class PrismaParser {
         safety: 'destructive',
         agentSafe: false,
         requiredAuth: inferActionAuth({ safety: 'destructive', type: 'function' }),
-        inputs: idInput,
-        outputs: { type: 'object', description: `Deleted ${name}` },
+        parameters: { properties: idInput },
+        returns: { type: 'object', description: `Deleted ${name}` },
       });
 
       void lower; // suppress unused-variable warning

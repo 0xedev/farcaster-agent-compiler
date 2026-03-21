@@ -120,10 +120,10 @@ export class TSParser {
           location,
           method: methodName,
           safety,
-          agentSafe: deriveAgentSafe(safety),
+          agentSafe: deriveAgentSafe(safety, actionName),
           requiredAuth: this.actionAuth(safety, methodName),
-          inputs: zodInputs,
-          outputs: { type: 'any' },
+          parameters: { properties: zodInputs },
+          returns: { type: 'any' },
         });
       }
 
@@ -145,10 +145,10 @@ export class TSParser {
           location,
           method: methodName,
           safety,
-          agentSafe: deriveAgentSafe(safety),
+          agentSafe: deriveAgentSafe(safety, actionName),
           requiredAuth: this.actionAuth(safety, methodName),
-          inputs: zodInputs,
-          outputs: { type: 'any' },
+          parameters: { properties: zodInputs },
+          returns: { type: 'any' },
         });
       }
     }
@@ -171,10 +171,10 @@ export class TSParser {
         location,
         method,
         safety,
-        agentSafe: deriveAgentSafe(safety),
+        agentSafe: deriveAgentSafe(safety, actionName),
         requiredAuth: this.actionAuth(safety, method),
-        inputs: zodShape ?? {},
-        outputs: { type: 'any' },
+        parameters: { properties: zodShape ?? {} },
+        returns: { type: 'any' },
       });
     }
 
@@ -197,10 +197,10 @@ export class TSParser {
         location,
         method,
         safety,
-        agentSafe: deriveAgentSafe(safety),
+        agentSafe: deriveAgentSafe(safety, actionName),
         requiredAuth: this.actionAuth(safety, method),
-        inputs: zodShape ?? {},
-        outputs: { type: 'any' },
+        parameters: { properties: zodShape ?? {} },
+        returns: { type: 'any' },
       });
     }
 
@@ -234,10 +234,10 @@ export class TSParser {
           type: 'function',
           location: `./${relativePath}`,
           safety,
-          agentSafe: deriveAgentSafe(safety),
+          agentSafe: deriveAgentSafe(safety, name),
           requiredAuth: this.actionAuth(safety, undefined, undefined, 'function'),
-          inputs: this.extractFunctionParams(init as any),
-          outputs: { type: 'any' },
+          parameters: { properties: this.extractFunctionParams(init as any) },
+          returns: { type: 'any' },
         });
       }
     }
@@ -350,7 +350,7 @@ export class TSParser {
       ?.toString()
       .match(/safety=(read|write|financial|destructive)/)?.[1] as any;
 
-    const inputs: Record<string, any> = {};
+    const properties: Record<string, any> = {};
     if ('getParameters' in declaration) {
       for (const param of declaration.getParameters()) {
         const paramName = param.getName();
@@ -358,7 +358,7 @@ export class TSParser {
           ?.getTags()
           .find(t => t.getTagName() === 'param' && (t as any).getName() === paramName);
 
-        inputs[paramName] = {
+        properties[paramName] = {
           type: this.mapType(param.getType()),
           description: paramDoc?.getComment()?.toString().trim() || '',
           required: !param.isOptional(),
@@ -376,10 +376,10 @@ export class TSParser {
       type: 'function',
       location: `./${relativePath}`,
       safety,
-      agentSafe: deriveAgentSafe(safety),
+      agentSafe: deriveAgentSafe(safety, name),
       requiredAuth: this.actionAuth(safety, undefined, undefined, 'function'),
-      inputs,
-      outputs: {
+      parameters: { properties },
+      returns: {
         type: returnType ? this.mapType(returnType) : 'any',
         description:
           jsDoc?.getTags().find(t => t.getTagName() === 'returns')?.getComment()?.toString().trim() || '',

@@ -73,15 +73,15 @@ export class TRPCParser {
         location: relativePath,
         method: methodName,
         safety,
-        agentSafe: deriveAgentSafe(safety),
+        agentSafe: deriveAgentSafe(safety, procedureName),
         requiredAuth: inferActionAuth({
           safety,
           httpMethod: httpLike,
           appAuthType: isProtected ? 'bearer' : undefined,
           type: 'function',
         }),
-        inputs,
-        outputs: { type: 'object' },
+        parameters: { properties: inputs },
+        returns: { type: 'object' },
       });
     });
 
