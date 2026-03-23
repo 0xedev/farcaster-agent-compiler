@@ -32,7 +32,7 @@ const program = new Command();
 program
   .name('agentjson')
   .description('Universal agent manifest compiler — generates agent.json for any web app')
-  .version('3.1.0')
+  .version('4.0.0')
   .option('-p, --path <path>', 'path to the project root', '.')
   .option('-o, --output <output>', 'output path for agent.json', './public/agent.json')
   .option('--author <author>', 'author name or organization')
@@ -249,6 +249,8 @@ function validateManifest(m: any): string[] {
         errors.push(`${prefix}: \`agentSafe\` must be a boolean`);
       if (!action.requiredAuth)
         errors.push(`${prefix}: \`requiredAuth\` is missing`);
+      else if (!['public', 'required', 'farcaster-signed'].includes(action.requiredAuth.required))
+        errors.push(`${prefix}: \`requiredAuth.required\` must be "public", "required", or "farcaster-signed"`);
       if (!action.parameters || typeof action.parameters.properties !== 'object')
         errors.push(`${prefix}: \`parameters.properties\` must be an object`);
       if (!action.returns || typeof action.returns.type !== 'string')
