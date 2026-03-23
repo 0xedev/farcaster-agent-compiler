@@ -42,6 +42,16 @@ const ALWAYS_EXCLUDE = [
   '!**/credentials/**',
 ];
 
+/**
+ * Checks if a path is strictly within the project directory.
+ * Prevents path traversal via symbolic links or malformed paths.
+ */
+function isPathWithinProject(filePath: string, projectPath: string): boolean {
+  const resolved = path.resolve(filePath);
+  const root = path.resolve(projectPath);
+  return resolved.startsWith(root);
+}
+
 export class DiscoveryService {
   private cache: Cache = {};
   private cachePath: string;
@@ -123,6 +133,7 @@ export class DiscoveryService {
     ], { cwd: this.projectPath, absolute: true });
 
     for (const file of allTsFiles) {
+      if (!isPathWithinProject(file, this.projectPath)) continue;
       if (relevantFiles.includes(file)) continue;
 
       const hash = fileHash(file);

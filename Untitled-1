@@ -1,0 +1,75 @@
+### https://miniapps.farcaster.xyz/docs/guides/agents-checklist#11-verify-manifest-accessibility1.1 Verify Manifest Accessibility
+```
+Copycurl -s https://{domain}/.well-known/farcaster.json
+```
+
+
+```
+curl -s https://{domain}/.well-known/farcaster.json
+```
+
+
+```
+Copy{ "accountAssociation": { "header": "...", "payload": "...", "signature": "..." }, "frame": { "version": "1", "name": "App Name", "iconUrl": "https://...", "homeUrl": "https://..." } }
+```
+
+
+```
+{ "accountAssociation": { "header": "...", "payload": "...", "signature": "..." }, "frame": { "version": "1", "name": "App Name", "iconUrl": "https://...", "homeUrl": "https://..." } }
+```
+
+- HTTP 200 response
+- Valid JSON format
+- Contains accountAssociation object
+- Contains frame object with required fields
+
+```
+accountAssociation
+```
+
+
+```
+frame
+```
+
+
+```
+CopyIs hosting available? ├─ Yes: Use hosted manifest │ └─ Direct to: https://farcaster.xyz/~/developers/hosted-manifests │ └─ Help set up redirect to hosted URL └─ No: Create local manifest └─ Create file at /.well-known/farcaster.json
+```
+
+
+```
+Is hosting available? ├─ Yes: Use hosted manifest │ └─ Direct to: https://farcaster.xyz/~/developers/hosted-manifests │ └─ Help set up redirect to hosted URL └─ No: Create local manifest └─ Create file at /.well-known/farcaster.json
+```
+
+
+```
+Copy{ "redirects": [ { "source": "/.well-known/farcaster.json", "destination": "https://api.farcaster.xyz/miniapps/hosted-manifest/{manifest-id}", "permanent": false } ] }
+```
+
+
+```
+{ "redirects": [ { "source": "/.well-known/farcaster.json", "destination": "https://api.farcaster.xyz/miniapps/hosted-manifest/{manifest-id}", "permanent": false } ] }
+```
+
+Action: Direct the user to sign the manifest
+- Tool: [https://farcaster.xyz/~/developers/mini-apps/manifest?domain={their-domain}](https://farcaster.xyz/~/developers/mini-apps/manifest?domain=%7Btheir-domain%7D)
+- The user must provide the signed accountAssociation object
+- Update the manifest with signed data
+[https://farcaster.xyz/~/developers/mini-apps/manifest?domain={their-domain}](https://farcaster.xyz/~/developers/mini-apps/manifest?domain=%7Btheir-domain%7D)
+
+```
+accountAssociation
+```
+
+### https://miniapps.farcaster.xyz/docs/guides/agents-checklist#12-validate-manifest-schema1.2 Validate Manifest Schema
+#### Example Manifest (Validated against current schema)
+
+```
+{ "accountAssociation": { "header": "eyJmaWQiOjEyMTUyLCJ0eXBlIjoiY3VzdG9keSIsImtleSI6IjB4MEJGNDVGOTY3RTkwZmZENjA2MzVkMUFDMTk1MDYyYTNBOUZjQzYyQiJ9", "payload": "eyJkb21haW4iOiJ3d3cuYm91bnR5Y2FzdGVyLnh5eiJ9", "signature": "MHhmMTUwMWRjZjRhM2U1NWE1ZjViNGQ5M2JlNGIxYjZiOGE0ZjcwYWQ5YTE1OTNmNDk1NzllNTA2YjJkZGZjYTBlMzI4ZmRiNDZmNmVjZmFhZTU4NjYwYzBiZDc4YjgzMzc2MDAzYTkxNzhkZGIyZGIyZmM5ZDYwYjU2YTlmYzdmMDFj" }, "frame": { "version": "1", "name": "Bountycaster", "iconUrl": "https://www.bountycaster.xyz/static/images/bounty/logo.png", "homeUrl": "https://www.bountycaster.xyz", "imageUrl": "https://www.bountycaster.xyz/static/images/bounty/logo.png", "buttonTitle": "Open Bounty", "splashImageUrl": "https://www.bountycaster.xyz/static/images/bounty/logo.png", "splashBackgroundColor": "#FFFFFF" } }
+```
+
+
+```
+{ "accountAssociation": { "header": "eyJmaWQiOjEyMTUyLCJ0eXBlIjoiY3VzdG9keSIsImtleSI6IjB4MEJGNDVGOTY3RTkwZmZENjA2MzVkMUFDMTk1MDYyYTNBOUZjQzYyQiJ9", "payload": "eyJkb21haW4iOiJ3d3cuYm91bnR5Y2FzdGVyLnh5eiJ9", "signature": "MHhmMTUwMWRjZjRhM2U1NWE1ZjViNGQ5M2JlNGIxYjZiOGE0ZjcwYWQ5YTE1OTNmNDk1NzllNTA2YjJkZGZjYTBlMzI4ZmRiNDZmNmVjZmFhZTU4NjYwYzBiZDc4YjgzMzc2MDAzYTkxNzhkZGIyZGIyZmM5ZDYwYjU2YTlmYzdmMDFj" }, "frame": { "version": "1", "name": "Bountycaster", "iconUrl": "https://www.bountycaster.xyz/static/images/bounty/logo.png", "homeUrl": "https://www.bountycaster.xyz", "imageUrl": "https://www.bountycaster.xyz/static/images/bounty/logo.png", "buttonTitle": "Open Bounty", "splashImageUrl": "https://www.bountycaster.xyz/static/images/bounty/logo.png", "splashBackgroundColor": "#FFFFFF" } }
+```

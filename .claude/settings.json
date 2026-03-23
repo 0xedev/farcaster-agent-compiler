@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node /Users/ayobamiadefolalu/.gemini/antigravity/scratch/farcaster-agent-compiler/dist/index.js --help)",
+      "Skill(commit-commands:commit-push-pr)",
+      "Skill(commit-commands:commit-push-pr:*)",
+      "Bash(gh pr:*)",
+      "Bash(git checkout:*)",
+      "Bash(git pull:*)",
+      "Bash(npm version:*)",
+      "Bash(npm run:*)"
+    ]
+  }
+}

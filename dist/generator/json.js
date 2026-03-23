@@ -2,13 +2,14 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ManifestGenerator = void 0;
 class ManifestGenerator {
-    generate(actions, metadata = {}, capabilities = [], auth = { type: 'none' }, version = '1.0.0') {
+    generate(actions, metadata = {}, capabilities = [], auth = { type: 'none' }, version = '1.0.0', options = {}) {
         return {
             name: metadata.name ?? 'Web App',
             description: metadata.description ?? 'Auto-generated agent manifest',
             version,
             ...(metadata.author && { author: metadata.author }),
             ...(metadata.url && { url: metadata.url }),
+            ...(options.baseUrl && { baseUrl: options.baseUrl }),
             auth,
             metadata: {
                 ...(metadata.iconUrl && { iconUrl: metadata.iconUrl }),
@@ -19,6 +20,7 @@ class ManifestGenerator {
             },
             capabilities,
             actions,
+            ...(options.dataModel && Object.keys(options.dataModel).length > 0 && { dataModel: options.dataModel }),
         };
     }
 }

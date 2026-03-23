@@ -39,6 +39,13 @@ const path = __importStar(require("path"));
 const crypto = __importStar(require("crypto"));
 const tinyglobby_1 = require("tinyglobby");
 const express_parser_1 = require("../parser/express-parser");
+const socketio_parser_1 = require("../parser/socketio-parser");
+const trpc_parser_1 = require("../parser/trpc-parser");
+const sse_parser_1 = require("../parser/sse-parser");
+const remix_parser_1 = require("../parser/remix-parser");
+const websocket_parser_1 = require("../parser/websocket-parser");
+const openapi_parser_1 = require("../parser/openapi-parser");
+const prisma_parser_1 = require("../parser/prisma-parser");
 /** SHA-1 of a file's content — used for change detection caching. */
 function fileHash(filePath) {
     try {
@@ -60,12 +67,20 @@ const ALWAYS_EXCLUDE = [
     '!**/out/**',
     '!**/build/**',
     '!**/.vercel/**',
-    // Never scan env files — they may contain secrets
     '!**/.env',
     '!**/.env.*',
     '!**/secrets/**',
     '!**/credentials/**',
 ];
+/**
+ * Checks if a path is strictly within the project directory.
+ * Prevents path traversal via symbolic links or malformed paths.
+ */
+function isPathWithinProject(filePath, projectPath) {
+    const resolved = path.resolve(filePath);
+    const root = path.resolve(projectPath);
+    return resolved.startsWith(root);
+}
 class DiscoveryService {
     projectPath;
     cache = {};
@@ -94,14 +109,14 @@ class DiscoveryService {
     }
     async findRelevantFiles() {
         const relevantFiles = [];
-        // 0. Farcaster manifest (app identity / metadata)
+        // 0. Farcaster manifest
         const manifests = await (0, tinyglobby_1.glob)([
             '.well-known/farcaster.json',
             'public/.well-known/farcaster.json',
             '**/public/.well-known/farcaster.json',
         ], { cwd: this.projectPath, absolute: true });
         relevantFiles.push(...manifests);
-        // 0.5. ABI JSON files (smart contract definitions)
+        // 0.5. ABI JSON files
         const abis = await (0, tinyglobby_1.glob)([
             '**/*ABI.json',
             '**/abi/*.json',
@@ -111,34 +126,50 @@ class DiscoveryService {
             ...ALWAYS_EXCLUDE,
         ], { cwd: this.projectPath, absolute: true });
         relevantFiles.push(...abis);
-        // 1. API routes — support monorepo layouts (apps/*/src/app/api, apps/*/pages/api, etc.)
+        // 0.6. OpenAPI / Swagger specs
+        const openApiFiles = await (0, tinyglobby_1.glob)([
+            ...openapi_parser_1.OPENAPI_PATTERNS,
+            ...ALWAYS_EXCLUDE,
+        ], { cwd: this.projectPath, absolute: true });
+        relevantFiles.push(...openApiFiles);
+        // 0.7. Prisma schema files
+        const prismaFiles = await (0, tinyglobby_1.glob)([
+            ...prisma_parser_1.PRISMA_PATTERNS,
+            ...ALWAYS_EXCLUDE,
+        ], { cwd: this.projectPath, absolute: true });
+        relevantFiles.push(...prismaFiles);
+        // 1. Next.js API routes
         const apiRoutes = await (0, tinyglobby_1.glob)([
-            // Next.js App Router
             '**/app/api/**/*.{ts,js,tsx,jsx}',
-            // Next.js Pages Router
             '**/pages/api/**/*.{ts,js,tsx,jsx}',
-            // Generic api/ folder
             '**/api/**/*.{ts,js,tsx,jsx}',
             ...ALWAYS_EXCLUDE,
         ], { cwd: this.projectPath, absolute: true });
         relevantFiles.push(...apiRoutes);
-        // 2. Scan all TS/TSX files for signal keywords
+        // 2. Remix route files
+        const remixRoutes = await (0, tinyglobby_1.glob)([
+            '**/app/routes/**/*.{ts,js,tsx,jsx}',
+            '**/routes/**/*.{ts,js,tsx,jsx}',
+            ...ALWAYS_EXCLUDE,
+        ], { cwd: this.projectPath, absolute: true });
+        relevantFiles.push(...remixRoutes);
+        // 3. Scan all TS/TSX/JS files for signal keywords
         const allTsFiles = await (0, tinyglobby_1.glob)([
-            '**/*.{ts,tsx}',
+            '**/*.{ts,tsx,js,jsx}',
             ...ALWAYS_EXCLUDE,
         ], { cwd: this.projectPath, absolute: true });
         for (const file of allTsFiles) {
+            if (!isPathWithinProject(file, this.projectPath))
+                continue;
             if (relevantFiles.includes(file))
                 continue;
             const hash = fileHash(file);
             const cached = this.cache[file];
-            // Cache hit: file unchanged, reuse previous relevance decision
             if (cached && cached.hash === hash) {
                 if (cached.relevant)
                     relevantFiles.push(file);
                 continue;
             }
-            // Cache miss: read and classify
             const content = fs.readFileSync(file, 'utf8');
             const relevant = content.includes('@agent-action') ||
                 content.includes('useWriteContract') ||
@@ -146,7 +177,12 @@ class DiscoveryService {
                 content.includes('writeContract') ||
                 content.includes("'use server'") ||
                 content.includes('"use server"') ||
-                (0, express_parser_1.looksLikeRouteFile)(content);
+                (0, express_parser_1.looksLikeRouteFile)(content) ||
+                (0, socketio_parser_1.looksLikeSocketIOFile)(content) ||
+                (0, trpc_parser_1.looksLikeTRPCFile)(content) ||
+                (0, sse_parser_1.looksLikeSSEFile)(content) ||
+                (0, remix_parser_1.looksLikeRemixRouteFile)(content) ||
+                (0, websocket_parser_1.looksLikeWebSocketFile)(content);
             this.cache[file] = { hash, relevant };
             this.cacheModified = true;
             if (relevant)

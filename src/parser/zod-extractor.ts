@@ -324,7 +324,17 @@ export class ZodExtractor {
     const envMatch = text.match(/process\.env\.([A-Z0-9_]+)/);
     if (envMatch) return { $env: envMatch[1] };
 
-    if (Node.isStringLiteral(node)) return node.getLiteralValue();
+    if (Node.isStringLiteral(node)) {
+      const val = node.getLiteralValue();
+      // SECURITY: Redact high-entropy strings or common secret prefixes
+      if (
+        /^(sk_|pk_|api_key|token|secret|key-|passwd|auth_|ghp_)/i.test(val) ||
+        (val.length > 20 && /[a-z]/i.test(val) && /[0-9]/.test(val) && /[A-Z]/.test(val))
+      ) {
+        return '[REDACTED_SECRET]';
+      }
+      return val;
+    }
     if (Node.isNumericLiteral(node)) return Number(node.getLiteralValue());
     if (text === 'true') return true;
     if (text === 'false') return false;
