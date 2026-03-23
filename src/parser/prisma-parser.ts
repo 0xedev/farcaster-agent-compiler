@@ -27,8 +27,8 @@ export class PrismaParser {
         const fieldMatch = /^(\w+)\s+(\w+)(\[\])?([\?])?(.*)?$/.exec(trimmed);
         if (!fieldMatch) continue;
         const [, fieldName, fieldType, isList, isOptional, attrs] = fieldMatch;
-        // Skip auto-managed fields
-        if (attrs?.includes('@id') || attrs?.includes('@default(now())') || attrs?.includes('@updatedAt')) continue;
+        // Skip auto-managed fields (any @default(...) variant, not just @default(now()))
+        if (attrs?.includes('@id') || attrs?.includes('@default(') || attrs?.includes('@updatedAt')) continue;
 
         fields[fieldName] = {
           type: this.mapFieldType(fieldType, !!isList),
